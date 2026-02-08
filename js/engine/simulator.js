@@ -13,7 +13,8 @@ export function simulateOnce(opts) {
   }
 
   const woundReq = woundTarget(opts.S, opts.T);
-  const modSv = opts.Sv + Math.abs(opts.AP || 0) + (opts.cover ? 1 : 0);
+  const apVal = Math.abs(opts.AP || 0) + (opts.bonusAP || 0);
+  const modSv = opts.Sv + apVal + (opts.cover ? 1 : 0);
   // Invuln is NOT affected by AP or cover
   const effectiveSv = (opts.invuln && opts.invuln < modSv) ? opts.invuln : modSv;
   // Cap: save can't be better than 2+
@@ -24,12 +25,17 @@ export function simulateOnce(opts) {
   const devWounds = opts.devastatingWounds || false;
   const twinLinked = opts.twinLinked || false;
   const antiCrit = opts.antiCrit || 0; // e.g. 4 for Anti-X 4+
+  const critHitOn = opts.critHitOn || 6; // default crit on 6
 
   let totalDamage = 0;
   let mortalWounds = 0;
   let modelsLeft = opts.models || 1;
   let currentModelWounds = opts.wounds || 1;
   let modelsKilled = 0;
+  let totalHits = 0;
+  let totalWounds = 0;
+  let totalSavesMade = 0;
+  let totalSavesFailed = 0;
 
   for (let i = 0; i < totalAttacks && modelsLeft > 0; i++) {
     // Hit roll
@@ -41,7 +47,7 @@ export function simulateOnce(opts) {
     }
     if (hitRoll < opts.skill && hitRoll !== 6) continue; // miss (natural 6 always hits)
     
-    const isCritHit = hitRoll === 6;
+    const isCritHit = hitRoll >= critHitOn;
     
     // Sustained Hits: on crit hit, generate extra hits
     let extraHits = 0;
@@ -50,6 +56,7 @@ export function simulateOnce(opts) {
     }
 
     // Process this hit + extra hits from sustained
+    totalHits += 1 + extraHits;
     for (let hitNum = 0; hitNum <= extraHits && modelsLeft > 0; hitNum++) {
       // Lethal Hits: crit hit auto-wounds (only on the original hit, not sustained extras... actually RAW all of them)
       let autoWound = false;
@@ -80,6 +87,8 @@ export function simulateOnce(opts) {
         isCritWound = true; // lethal hits count as auto-wound
       }
 
+      totalWounds++;
+
       // Devastating Wounds: crit wound = mortal wounds, skip save
       if (devWounds && isCritWound) {
         let dmg = rollExpr(opts.D);
@@ -107,7 +116,10 @@ export function simulateOnce(opts) {
       // Save roll
       if (cappedSv <= 6) {
         const saveRoll = rollD6();
-        if (saveRoll >= cappedSv) continue; // saved
+        if (saveRoll >= cappedSv) { totalSavesMade++; continue; } // saved
+        totalSavesFailed++;
+      } else {
+        totalSavesFailed++;
       }
 
       // Damage
@@ -134,7 +146,7 @@ export function simulateOnce(opts) {
     }
   }
 
-  return { damage: totalDamage, modelsKilled };
+  return { damage: totalDamage, modelsKilled, totalAttacks, totalHits, totalWounds, totalSavesMade, totalSavesFailed, mortalWounds };
 }
 
 /**
@@ -146,6 +158,7 @@ export function runSimulation(opts, N = 10000) {
   let totalDmg = 0;
   let totalKills = 0;
   let wipeCount = 0;
+  let sumAttacks = 0, sumHits = 0, sumWounds = 0, sumSavesMade = 0, sumSavesFailed = 0, sumMortalWounds = 0;
 
   for (let i = 0; i < N; i++) {
     const result = simulateOnce(opts);
@@ -154,6 +167,12 @@ export function runSimulation(opts, N = 10000) {
     totalDmg += result.damage;
     totalKills += result.modelsKilled;
     if (result.modelsKilled >= (opts.models || 1)) wipeCount++;
+    sumAttacks += result.totalAttacks;
+    sumHits += result.totalHits;
+    sumWounds += result.totalWounds;
+    sumSavesMade += result.totalSavesMade;
+    sumSavesFailed += result.totalSavesFailed;
+    sumMortalWounds += result.mortalWounds;
   }
 
   const maxDmg = Math.max(...damages);
@@ -178,5 +197,13 @@ export function runSimulation(opts, N = 10000) {
     histogram: histPct,
     wipeChance: wipeCount / N,
     N,
+    breakdown: {
+      avgAttacks: sumAttacks / N,
+      avgHits: sumHits / N,
+      avgWounds: sumWounds / N,
+      avgSavesMade: sumSavesMade / N,
+      avgSavesFailed: sumSavesFailed / N,
+      avgMortalWounds: sumMortalWounds / N,
+    },
   };
 }

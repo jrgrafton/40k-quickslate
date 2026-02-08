@@ -211,6 +211,9 @@ export default function BattleDashboard({ army, db }) {
   const [expandedRules, setExpandedRules] = useState(new Set());
   // Stratagem type collapse state
   const [collapsedStratTypes, setCollapsedStratTypes] = useState(new Set());
+  // Sim army rule toggles
+  const [simStance, setSimStance] = useState("none"); // "none", "dacatarai", "rendax"
+  const [simDetachmentRule, setSimDetachmentRule] = useState("none"); // "none", "crit5", "ap1"
 
   if (!army) {
     return h("div", { className: "empty-state" },
@@ -268,6 +271,14 @@ export default function BattleDashboard({ army, db }) {
     if (!factionId) return [];
     return db.sharedAbilities.filter(a => a.faction_id === factionId && a.name && a.description);
   }, [db, army.faction]);
+
+  // Detect if army has Ka'tah stances (Custodes)
+  const hasKatah = useMemo(() => armyRules.some(r => r.name && r.name.toLowerCase().includes("ka'tah")), [armyRules]);
+  // Detect if army detachment is Shield Host (has detachment rule options)
+  const isShieldHost = useMemo(() => {
+    const det = (army.detachment || '').toLowerCase();
+    return det.includes('shield host');
+  }, [army.detachment]);
 
   // Group identical units (respecting ungroupedNames)
   const groupedUnits = useMemo(() => {
@@ -412,7 +423,34 @@ export default function BattleDashboard({ army, db }) {
       if (abDesc.includes('re-roll the hit roll')) opts.rerollHitAll = true;
     }
 
-    setSimResult(runSimulation(opts, 5000));
+    // Apply Ka'tah stance (melee only)
+    const isMelee = !weapon.range || weapon.range === '-' || weapon.range === 'Melee';
+    if (isMelee && simStance === 'dacatarai') {
+      opts.sustainedHits = Math.max(opts.sustainedHits, 1);
+    }
+    if (isMelee && simStance === 'rendax') {
+      opts.lethalHits = true;
+    }
+
+    // Apply Shield Host detachment rule (melee only)
+    if (isMelee && simDetachmentRule === 'crit5') {
+      opts.critHitOn = 5;
+    }
+    if (isMelee && simDetachmentRule === 'ap1') {
+      opts.bonusAP = 1;
+    }
+
+    // Track applied rules for display
+    const appliedRules = [];
+    if (isMelee && simStance === 'dacatarai') appliedRules.push('Ka\'tah: Dacatarai (Sustained Hits 1)');
+    if (isMelee && simStance === 'rendax') appliedRules.push('Ka\'tah: Rendax (Lethal Hits)');
+    if (isMelee && simDetachmentRule === 'crit5') appliedRules.push('Detachment: Critical Hit on 5+');
+    if (isMelee && simDetachmentRule === 'ap1') appliedRules.push('Detachment: AP improved by 1');
+
+    const result = runSimulation(opts, 5000);
+    result.appliedRules = appliedRules;
+    result.simOpts = opts;
+    setSimResult(result);
   }
 
   function attachLeader(charIdx, bodyguardIdx) {
@@ -610,6 +648,22 @@ export default function BattleDashboard({ army, db }) {
                 onClick: () => setSimCover(!simCover),
               }, "Cover"),
             ),
+            // Army rule toggles
+            (hasKatah || isShieldHost) && h("div", { className: "field", style: { minWidth: 180 } },
+              h("label", null, "Army Rules"),
+              h("div", { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+                hasKatah && h("select", { className: "select", value: simStance, onChange: e => setSimStance(e.target.value), style: { fontSize: 11 } },
+                  h("option", { value: "none" }, "No Ka'tah Stance"),
+                  h("option", { value: "dacatarai" }, "Dacatarai (Sustained Hits 1)"),
+                  h("option", { value: "rendax" }, "Rendax (Lethal Hits)"),
+                ),
+                isShieldHost && h("select", { className: "select", value: simDetachmentRule, onChange: e => setSimDetachmentRule(e.target.value), style: { fontSize: 11 } },
+                  h("option", { value: "none" }, "No Detachment Rule"),
+                  h("option", { value: "crit5" }, "Crit Hit on 5+ (melee)"),
+                  h("option", { value: "ap1" }, "AP +1 (melee)"),
+                ),
+              ),
+            ),
             h("button", { className: "btn", onClick: runQuickSim, style: { alignSelf: 'flex-end', height: '32px', marginBottom: '0px' } }, "⚡ Sim"),
           ),
           simResult && (() => {
@@ -621,12 +675,35 @@ export default function BattleDashboard({ army, db }) {
             const dW = parseN(defModel.W || defender?.W || '?');
             const dInv = defModel.inv_sv && defModel.inv_sv !== '-' ? parseN(defModel.inv_sv) : null;
             const defStr = `vs T${dT} Sv${dSv}+${dInv ? ' Inv' + dInv + '+' : ''} W${dW}`;
-            return h("div", { className: "quick-sim-results" },
-              h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
-              h("span", { className: "sim-result-item" }, h("strong", null, simResult.meanKills.toFixed(1)), " avg kills"),
-              h("span", { className: "sim-result-item" }, h("strong", null, (simResult.wipeChance * 100).toFixed(1) + "%"), " wipe"),
-              h("span", { className: "sim-result-item" }, h("strong", null, simResult.min + "–" + simResult.max), " range"),
-              h("span", { className: "sim-result-item", style: { color: '#8a8070', fontSize: 11 } }, defStr),
+            const bd = simResult.breakdown;
+            return h("div", null,
+              h("div", { className: "quick-sim-results" },
+                h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
+                h("span", { className: "sim-result-item" }, h("strong", null, simResult.meanKills.toFixed(1)), " avg kills"),
+                h("span", { className: "sim-result-item" }, h("strong", null, (simResult.wipeChance * 100).toFixed(1) + "%"), " wipe"),
+                h("span", { className: "sim-result-item" }, h("strong", null, simResult.min + "–" + simResult.max), " range"),
+                h("span", { className: "sim-result-item", style: { color: '#8a8070', fontSize: 11 } }, defStr),
+              ),
+              // Sim breakdown
+              h("div", { className: "sim-breakdown" },
+                h("span", null, bd.avgAttacks.toFixed(1), " attacks"),
+                h("span", null, " → "),
+                h("span", null, bd.avgHits.toFixed(1), " hits"),
+                h("span", null, " → "),
+                h("span", null, bd.avgWounds.toFixed(1), " wounds"),
+                h("span", null, " → "),
+                h("span", { style: { color: '#4caf50' } }, bd.avgSavesMade.toFixed(1), " saved"),
+                h("span", null, " / "),
+                h("span", { style: { color: 'var(--red-bright)' } }, bd.avgSavesFailed.toFixed(1), " failed"),
+                bd.avgMortalWounds > 0.01 && h("span", null, " + ", h("span", { style: { color: '#ff9800' } }, bd.avgMortalWounds.toFixed(1), " MW")),
+              ),
+              // Applied rules
+              simResult.appliedRules && simResult.appliedRules.length > 0 && h("div", { className: "sim-applied-rules" },
+                h("span", null, "📋 "),
+                ...simResult.appliedRules.map((r, i) =>
+                  h("span", { key: i, className: "sim-rule-tag" }, r)
+                ),
+              ),
             );
           })(),
         ),
@@ -771,8 +848,26 @@ export default function BattleDashboard({ army, db }) {
       // Quick Reference Sidebar
       sidebarOpen && h("div", { className: "battle-sidebar" },
         // Army Rules
-        armyRules.length > 0 && h("div", { className: "ref-section" },
+        (armyRules.length > 0 || isShieldHost) && h("div", { className: "ref-section" },
           h("h4", { className: "ref-title" }, "Army Rules"),
+          // Shield Host detachment rule (hardcoded - not in data)
+          isShieldHost && h("div", { className: "army-rule-card", onClick: () => {
+            setExpandedRules(prev => {
+              const next = new Set(prev);
+              next.has('det-rule') ? next.delete('det-rule') : next.add('det-rule');
+              return next;
+            });
+          }},
+            h("div", { className: "army-rule-header" }, "Shield Host – Detachment Rule", expandedRules.has('det-rule') ? "▼" : "▶"),
+            expandedRules.has('det-rule') && h("div", { className: "army-rule-body", onClick: e => e.stopPropagation() },
+              h("div", { style: { marginBottom: 8 } }, "At the start of the battle round, you can select one of the bullet points below. If you do, until the start of the next battle round, that bullet point's effects apply."),
+              h("div", { className: "stance-header" }, "⚔️ SELECT ONE PER BATTLE ROUND:"),
+              h("div", { className: "stance-options" },
+                h("div", { className: "stance-card" }, ...highlightKeywords("■ Each time an ADEPTUS CUSTODES model with the Martial Ka'tah ability makes a melee attack, a successful unmodified Hit roll of 5+ scores a Critical Hit.")),
+                h("div", { className: "stance-card" }, ...highlightKeywords("■ Improve the Armour Penetration characteristic of melee weapons equipped by ADEPTUS CUSTODES models with the Martial Ka'tah ability by 1.")),
+              ),
+            ),
+          ),
           ...armyRules.map((r, i) => {
             const desc = stripHtml(r.description);
             const isKatah = r.name && r.name.toLowerCase().includes("ka'tah");
