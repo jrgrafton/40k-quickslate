@@ -38,15 +38,21 @@ export default function ArmyList({ db, onArmyLoaded }) {
     setYsError(null);
     setYsLoading(true);
     try {
-      const url = `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(code)}`;
+      const directUrl = `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(code)}`;
+      // Try direct fetch first, fall back to CORS proxy
       let res;
       try {
-        res = await fetch(url);
+        res = await fetch(directUrl);
       } catch (e) {
-        // CORS or network error — suggest manual paste
-        setYsError(`Network error (likely CORS). Try opening this URL and pasting the JSON below: ${url}`);
-        setYsLoading(false);
-        return;
+        // CORS blocked — try proxy
+        try {
+          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(directUrl)}`;
+          res = await fetch(proxyUrl);
+        } catch (e2) {
+          setYsError(`Network error (CORS blocked). Try opening this URL and pasting the JSON in the box below:\n${directUrl}`);
+          setYsLoading(false);
+          return;
+        }
       }
       if (!res.ok) {
         setYsError(`Error: ${res.status} ${res.statusText}. Check the code and try again.`);
