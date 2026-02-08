@@ -240,8 +240,9 @@ function extractDetachmentName(sel) {
 function applyEnhancementEffects(unit) {
   if (!unit.enhancements) return;
   for (const enh of unit.enhancements) {
-    const desc = (enh.description || '').toLowerCase();
+    const desc = (enh.description || '').replace(/\*\*/g, '').replace(/\^\^/g, '');
     const addMatch = desc.match(/add\s+(\d+)\s+to\s+(?:the bearer'?s?\s+)?(\w+)\s+characteristic/i);
+    console.log('[Enhancement]', enh.name, '→ desc:', desc.slice(0, 80), '→ match:', addMatch);
     if (addMatch && unit.statProfiles?.length > 0) {
       const amount = parseInt(addMatch[1]);
       const stat = addMatch[2].toLowerCase();

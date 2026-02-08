@@ -102,10 +102,15 @@ function buildDatabase(raw) {
       description: w.description || '',
     }));
 
-    const abilities = (abilitiesByDs[ds.id] || []).map(a => ({
+    const allAbilities = (abilitiesByDs[ds.id] || []);
+    const abilities = allAbilities.filter(a => a.type !== 'Wargear').map(a => ({
       name: a.name,
       description: a.description || '',
       type: a.type || '',
+    }));
+    const wargearAbilities = allAbilities.filter(a => a.type === 'Wargear').map(a => ({
+      name: a.name,
+      description: a.description || '',
     }));
 
     const keywords = (keywordsByDs[ds.id] || []).map(k => k.keyword);
@@ -132,6 +137,7 @@ function buildDatabase(raw) {
       models,
       weapons,
       abilities,
+      wargearAbilities,
       keywords,
       factionKeywords,
       options,

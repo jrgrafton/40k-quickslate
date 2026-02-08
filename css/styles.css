@@ -478,6 +478,27 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 .weapon-kw-pill {
   display: inline-block; background: rgba(42, 74, 122, 0.3); border: 1px solid var(--blue);
   color: #aaccee; font-size: 9px; padding: 1px 5px; border-radius: 3px;
+  margin: 1px 2px; position: relative; cursor: help;
+}
+.weapon-kw-pill[title]:hover::after {
+  content: attr(title);
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: #1a1a1a; border: 1px solid var(--blue); color: var(--text-primary);
+  font-size: 11px; font-weight: 400; padding: 6px 10px; border-radius: 4px;
+  white-space: normal; width: max-content; max-width: 350px;
+  z-index: 1000; pointer-events: none; line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+}
+
+.wargear-section { margin-top: 6px; }
+.wargear-item { margin-bottom: 4px; }
+.wargear-name { font-size: 11px; font-weight: 600; color: var(--gold); }
+.wargear-desc { font-size: 10px; color: var(--text-secondary); margin-left: 16px; }
+.wargear-options { margin-top: 6px; }
+.wargear-option-item {
+  font-size: 10px; color: var(--text-secondary); margin-bottom: 3px;
+  padding-left: 8px; border-left: 2px solid var(--border);
+  white-space: pre-line;
 }
 
 /* Group badge */

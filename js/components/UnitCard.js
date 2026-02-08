@@ -55,7 +55,8 @@ export default function UnitCard({
 
   const weapons = unit.weapons || [];
   const rawAbilities = unit.abilities || [];
-  const abilities = rawAbilities.filter(isValidAbility);
+  const abilities = rawAbilities.filter(a => isValidAbility(a) && (a.type || '').toLowerCase() !== 'wargear');
+  const wargearAbilities = (unit.wargearAbilities || []).concat(rawAbilities.filter(a => a.name && (a.type || '').toLowerCase() === 'wargear'));
   const keywords = unit.keywords || [];
   const rules = unit.rules || parsedData?.rules || [];
   const role = unit.role || parsedData?.role || parsedData?.category || '';
@@ -252,6 +253,25 @@ export default function UnitCard({
     expanded && !battleMode && (rangedWeapons.length > 0 || meleeWeapons.length > 0) && h("div", { className: "weapons-section" },
       renderWeaponTable(rangedWeapons, 'RANGED WEAPONS'),
       renderWeaponTable(meleeWeapons, 'MELEE WEAPONS'),
+    ),
+
+    // Wargear abilities
+    expanded && wargearAbilities.length > 0 && h("div", { className: "wargear-section" },
+      battleMode && h("div", { className: "weapon-section-title" }, "WARGEAR"),
+      ...wargearAbilities.map((wa, i) =>
+        h("div", { key: i, className: "wargear-item" },
+          h("span", { className: "wargear-name" }, "⚙ " + wa.name),
+          wa.description && h("div", { className: "wargear-desc" }, stripHtml(wa.description)),
+        )
+      ),
+    ),
+
+    // Wargear options
+    expanded && unit.options && unit.options.length > 0 && battleMode && h("div", { className: "wargear-options" },
+      h("div", { className: "weapon-section-title" }, "WARGEAR OPTIONS"),
+      ...unit.options.map((o, i) =>
+        h("div", { key: i, className: "wargear-option-item" }, stripHtml(o.description))
+      ),
     ),
 
     // Enhancements
