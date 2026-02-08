@@ -1,22 +1,18 @@
 import { createElement as h, useState } from "react";
 import { parseArmyList } from "../utils/parser.js";
-import { UNITS } from "../data/units.js";
+import { fuzzyMatchUnit } from "../data/wahapedia-loader.js";
 import UnitCard from "./UnitCard.js";
 
-export default function ArmyList() {
+export default function ArmyList({ db }) {
   const [text, setText] = useState("");
   const [army, setArmy] = useState(null);
 
   function handleParse() {
     if (!text.trim()) return;
     const parsed = parseArmyList(text);
-    // Try to match parsed units to our datasheet database
+    // Fuzzy-match parsed units against wahapedia database
     parsed.units = parsed.units.map(u => {
-      const match = UNITS.find(db =>
-        db.name.toLowerCase() === u.name.toLowerCase() ||
-        db.name.toLowerCase().includes(u.name.toLowerCase()) ||
-        u.name.toLowerCase().includes(db.name.toLowerCase())
-      );
+      const match = fuzzyMatchUnit(u.name, db);
       return { ...u, datasheet: match || null };
     });
     setArmy(parsed);
@@ -26,9 +22,7 @@ export default function ArmyList() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setText(ev.target.result);
-    };
+    reader.onload = (ev) => setText(ev.target.result);
     reader.readAsText(file);
   }
 
@@ -117,6 +111,7 @@ Redemptor Dreadnought [210pts]
                 ),
                 h("span", { className: "points-badge" }, u.points + " pts"),
               ),
+              h("div", { style: { fontSize: 11, color: '#cc2222', marginTop: 4 } }, "⚠ No datasheet match found"),
             )
       ),
     ),

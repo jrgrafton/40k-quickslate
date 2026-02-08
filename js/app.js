@@ -1,4 +1,4 @@
-import { createElement as h, useState } from "react";
+import { createElement as h, useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import ArmyList from "./components/ArmyList.js";
 import ProbabilityCalc from "./components/ProbabilityCalc.js";
@@ -6,48 +6,50 @@ import Simulator from "./components/Simulator.js";
 import StratagemPanel from "./components/StratagemPanel.js";
 import SearchBar from "./components/SearchBar.js";
 import UnitCard from "./components/UnitCard.js";
-import { UNITS } from "./data/units.js";
-import { FACTIONS } from "./data/factions.js";
+import FactionBrowser from "./components/FactionBrowser.js";
+import DetachmentViewer from "./components/DetachmentViewer.js";
+import LoadingScreen from "./components/LoadingScreen.js";
+import DataStatus from "./components/DataStatus.js";
+import { loadDatabase, getDatabase, onLoadProgress, getCacheMeta } from "./data/wahapedia-loader.js";
 
 const TABS = [
   { id: "army", label: "My Army" },
+  { id: "browse", label: "Browse" },
   { id: "probability", label: "Probability" },
   { id: "simulator", label: "Simulator" },
-  { id: "reference", label: "Reference" },
+  { id: "stratagems", label: "Stratagems" },
+  { id: "detachments", label: "Detachments" },
 ];
 
-function ReferenceTab() {
-  const [search, setSearch] = useState("");
-  const [faction, setFaction] = useState("all");
-
-  const filtered = UNITS.filter(u => {
-    if (faction !== "all" && u.faction !== faction) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return u.name.toLowerCase().includes(q) ||
-        u.keywords.some(k => k.toLowerCase().includes(q));
-    }
-    return true;
-  });
-
-  return h("div", null,
-    h(SearchBar, { value: search, onChange: setSearch, placeholder: "Search units by name or keyword..." }),
-    h("div", { className: "filter-pills" },
-      h("span", { className: `pill ${faction === "all" ? "active" : ""}`, onClick: () => setFaction("all") }, "All"),
-      ...Object.entries(FACTIONS).map(([id, f]) =>
-        h("span", { key: id, className: `pill ${faction === id ? "active" : ""}`, onClick: () => setFaction(id) }, f.name)
-      ),
-    ),
-    h("div", { style: { marginBottom: 8, color: "#5a5548", fontSize: 12 } }, `${filtered.length} units`),
-    ...filtered.map(u => h(UnitCard, { key: u.id, unit: u })),
-    h("div", { style: { marginTop: 24 } },
-      h(StratagemPanel),
-    ),
-  );
-}
-
 function App() {
-  const [tab, setTab] = useState("army");
+  const [tab, setTab] = useState("browse");
+  const [db, setDb] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState({ loaded: 0, total: 14, message: 'Initializing...' });
+  const [error, setError] = useState(null);
+
+  const doLoad = useCallback(async (force = false) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const database = await loadDatabase(force);
+      setDb(database);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsub = onLoadProgress(setProgress);
+    doLoad();
+    return unsub;
+  }, [doLoad]);
+
+  if (loading && !db) {
+    return h(LoadingScreen, { progress, error });
+  }
 
   return h("div", { className: "app" },
     h("header", { className: "header" },
@@ -62,11 +64,15 @@ function App() {
         ),
       ),
     ),
+    h(DataStatus, { db, onRefresh: () => doLoad(true), loading }),
     h("main", { className: "main" },
-      tab === "army" && h(ArmyList),
-      tab === "probability" && h(ProbabilityCalc),
-      tab === "simulator" && h(Simulator),
-      tab === "reference" && h(ReferenceTab),
+      error && !db && h("div", { className: "card", style: { color: '#cc2222' } }, "Error: ", error),
+      tab === "army" && h(ArmyList, { db }),
+      tab === "browse" && h(FactionBrowser, { db }),
+      tab === "probability" && h(ProbabilityCalc, { db }),
+      tab === "simulator" && h(Simulator, { db }),
+      tab === "stratagems" && h(StratagemPanel, { db }),
+      tab === "detachments" && h(DetachmentViewer, { db }),
     ),
   );
 }
