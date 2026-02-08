@@ -293,6 +293,13 @@ function parseUnitSelection(sel) {
     unit.models = parseInt(sel.number) || 1;
   }
 
+  // Extract leader targets from "Leader" ability
+  for (const ab of unit.abilities) {
+    if ((ab.name || '').toLowerCase() === 'leader' && ab.description && ab.description.toLowerCase().includes('can be attached to')) {
+      unit.leaderTargets = parseLeaderTargets(ab.description);
+    }
+  }
+
   return unit;
 }
 
@@ -368,6 +375,35 @@ function parseNestedSelection(sel, unit) {
       parseNestedSelection(nested, unit);
     }
   }
+}
+
+/**
+ * Parse leader target names from a "Leader" ability description.
+ * Handles both "■ Unit Name" bullet format and comma-separated ALL-CAPS keyword lists.
+ */
+function parseLeaderTargets(description) {
+  const targets = [];
+  // Match "■ Unit Name" lines
+  const bulletMatches = description.match(/■\s*([^\n■]+)/g);
+  if (bulletMatches) {
+    for (const m of bulletMatches) {
+      const name = m.replace(/^■\s*/, '').trim();
+      if (name) targets.push(name);
+    }
+  }
+  if (targets.length > 0) return targets;
+
+  // Fallback: parse after "can be attached to the following units:" 
+  const afterColon = description.match(/can be attached to the following units[:\s]*(.*)/is);
+  if (afterColon) {
+    const text = afterColon[1].trim();
+    // Split by comma
+    const parts = text.split(/,/).map(s => s.trim()).filter(Boolean);
+    for (const p of parts) {
+      if (p) targets.push(p);
+    }
+  }
+  return targets;
 }
 
 /**

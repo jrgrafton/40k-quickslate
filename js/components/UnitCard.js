@@ -38,6 +38,7 @@ export default function UnitCard({
   unit, compact = false, battleMode = false, parsedData = null,
   groupCount = 1, attachedLeaders = [], isCharacter = false,
   validLeaderTargets = [], onAttachLeader = null, currentAttachment = undefined,
+  leadingName = null,
   onUngroup = null, onRegroup = null,
 }) {
   const [expanded, setExpanded] = useState(!compact);
@@ -105,11 +106,17 @@ export default function UnitCard({
         invSv && h("span", { className: "buc-tag" }, invSv + "+ inv"),
         ...filteredRules.slice(0, 4).map((r, i) => h("span", { key: i, className: "buc-tag" }, r.name)),
       ),
+      // Leading indicator (clickable to detach)
+      leadingName && h("div", {
+        className: "leading-indicator",
+        onClick: (e) => { e.stopPropagation(); if (onAttachLeader) onAttachLeader(-1); },
+        title: "Click to detach",
+      }, `👑 Leading: ${leadingName}`),
       // Leader attach button
-      isCharacter && validLeaderTargets.length > 0 && h("div", {
+      isCharacter && validLeaderTargets.length > 0 && !leadingName && h("div", {
         className: "leader-attach-btn",
         onClick: (e) => { e.stopPropagation(); setShowLeaderMenu(!showLeaderMenu); },
-      }, currentAttachment !== undefined ? "✓ Leading" : "👑 Lead..."),
+      }, "👑 Lead..."),
     );
   }
 

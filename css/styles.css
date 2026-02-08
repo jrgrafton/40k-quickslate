@@ -513,10 +513,11 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 
 /* Cover toggle button */
 .cover-toggle {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   padding: 5px 12px; border-radius: var(--radius); font-size: 11px; font-weight: 600;
   cursor: pointer; border: 1px solid var(--border); transition: all 0.2s;
   text-transform: uppercase; letter-spacing: 0.5px;
+  width: 100px; height: 32px;
 }
 .cover-toggle.active {
   background: var(--gold); color: #000; border-color: var(--gold);
@@ -588,7 +589,7 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 }
 .strat-name-v2 { font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .strat-phase-tag { font-size: 9px; color: var(--text-muted); display: block; margin-top: 1px; }
-.strat-desc-v2 { font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.6; }
+.strat-desc-v2 { font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.6; white-space: pre-line; }
 
 .kw-pill {
   display: inline; background: rgba(201, 168, 76, 0.15); border: 1px solid var(--gold-dim);
@@ -611,6 +612,37 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   margin-left: 4px;
 }
 .regroup-btn:hover { background: rgba(201, 168, 76, 0.15); }
+
+/* Leading indicator */
+.leading-indicator {
+  font-size: 10px; color: var(--gold); cursor: pointer;
+  padding: 2px 6px; margin-top: 4px;
+  border: 1px solid var(--gold-dim); border-radius: 3px;
+  background: rgba(201, 168, 76, 0.15);
+}
+.leading-indicator:hover { background: rgba(201, 168, 76, 0.3); text-decoration: line-through; }
+
+/* Stance cards for Ka'tah */
+.stance-header {
+  font-size: 11px; font-weight: 700; color: var(--gold); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.stance-options { display: flex; flex-direction: column; gap: 6px; }
+.stance-card {
+  background: var(--bg-card); border: 1px solid var(--gold-dim);
+  border-radius: var(--radius); padding: 8px 10px;
+  font-size: 11px; color: var(--text-primary); line-height: 1.5;
+  cursor: pointer; transition: all 0.2s;
+}
+.stance-card:hover { background: rgba(201, 168, 76, 0.1); border-color: var(--gold); }
+
+/* Stratagem sections */
+.strat-sections { white-space: pre-line; }
+.strat-section { margin-bottom: 4px; }
+.strat-section-label {
+  font-weight: 700; color: var(--gold); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
 
 /* Responsive */
 @media (max-width: 900px) {

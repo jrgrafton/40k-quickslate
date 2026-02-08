@@ -39,7 +39,7 @@ export default function ArmyList({ db, onArmyLoaded }) {
     setYsLoading(true);
     try {
       const directUrl = `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(code)}`;
-      // Try direct fetch first, fall back to CORS proxy
+      // Try direct fetch first, fall back to CORS proxies
       let res;
       try {
         res = await fetch(directUrl);
@@ -47,8 +47,8 @@ export default function ArmyList({ db, onArmyLoaded }) {
       } catch (e) {
         // CORS blocked — try proxy chain
         const proxies = [
-          `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
           `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
+          `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`,
         ];
         res = null;
         for (const proxyUrl of proxies) {
@@ -58,7 +58,7 @@ export default function ArmyList({ db, onArmyLoaded }) {
           } catch (e2) { /* try next */ }
         }
         if (!res) {
-          setYsError(`Network error (CORS blocked). Try opening this URL and pasting the JSON in the box below:\n${directUrl}`);
+          setYsError(`Network error (CORS blocked). Open this link in a new tab, copy the JSON, and paste it in the text box below:`);
           setYsLoading(false);
           return;
         }
@@ -140,7 +140,15 @@ Redemptor Dreadnought [210pts]
           ysLoading ? "Loading..." : "Load"
         ),
       ),
-      ysError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, ysError),
+      ysError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, 
+        ysError,
+        ysError.includes('CORS') && ysCode.trim() && h("a", {
+          href: `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(ysCode.trim())}`,
+          target: "_blank",
+          rel: "noopener",
+          style: { display: 'block', color: '#c9a84c', marginTop: 4 },
+        }, "📋 Open direct link →"),
+      ),
     ),
 
     // Section 2: Paste/Upload

@@ -47,6 +47,47 @@ function highlightKeywords(text) {
   return parts;
 }
 
+function parseStratagemSections(text) {
+  const whenMatch = text.match(/WHEN:\s*(.*?)(?=TARGET:|EFFECT:|RESTRICTIONS:|$)/is);
+  const targetMatch = text.match(/TARGET:\s*(.*?)(?=EFFECT:|RESTRICTIONS:|$)/is);
+  const effectMatch = text.match(/EFFECT:\s*(.*?)(?=RESTRICTIONS:|$)/is);
+  const restrictMatch = text.match(/RESTRICTIONS:\s*(.*?)$/is);
+  if (!whenMatch && !targetMatch && !effectMatch) return null;
+  return {
+    when: whenMatch ? whenMatch[1].trim() : null,
+    target: targetMatch ? targetMatch[1].trim() : null,
+    effect: effectMatch ? effectMatch[1].trim() : null,
+    restrictions: restrictMatch ? restrictMatch[1].trim() : null,
+  };
+}
+
+function renderStanceRule(text) {
+  // Split by bullet points or numbered options
+  const lines = text.split(/\n/).filter(l => l.trim());
+  const stances = [];
+  const preamble = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Detect stance lines (start with - or • or bullet, contain keyword-like content)
+    if (/^[-•]\s/.test(trimmed) || /^Each time/.test(trimmed) || /^Improve/.test(trimmed)) {
+      stances.push(trimmed.replace(/^[-•]\s*/, ''));
+    } else {
+      preamble.push(trimmed);
+    }
+  }
+  
+  return h("div", null,
+    preamble.length > 0 && h("div", { style: { marginBottom: 8 } }, ...highlightKeywords(preamble.join(' '))),
+    stances.length >= 2 && h("div", { className: "stance-header" }, "⚔️ SELECT ONE STANCE PER FIGHT:"),
+    h("div", { className: "stance-options" },
+      ...stances.map((s, i) =>
+        h("div", { key: i, className: "stance-card" }, ...highlightKeywords(s))
+      ),
+    ),
+  );
+}
+
 export default function BattleDashboard({ army, db }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [simAttackerIdx, setSimAttackerIdx] = useState(0);
@@ -154,23 +195,21 @@ export default function BattleDashboard({ army, db }) {
     return groups;
   }, [army.units, ungroupedNames]);
 
-  // Leader attachment data
+  // Leader attachment data — supports both wahapedia leader_attachments AND BattleScribe leaderTargets
   const leaderData = useMemo(() => {
-    if (!db) return { characters: [], targets: {} };
+    if (!db && !army.units.some(u => u.leaderTargets)) return { characters: [], targets: {} };
     const characters = [];
-    const targets = {}; // charIndex -> [{ index, name }]
+    const targets = {}; // charIndex -> [{ armyIndex, name }]
     
     army.units.forEach((u, i) => {
       const ds = u.datasheet;
-      if (!ds) return;
-      if (ds.leader_attachments && ds.leader_attachments.length > 0) {
-        console.log(`[LeaderDebug] Unit "${ds.name}" (idx ${i}) leader_attachments:`, ds.leader_attachments);
-        characters.push(i);
-        targets[i] = ds.leader_attachments.map(attachedId => {
-          // Find which army unit matches this attached_id by datasheet id
+      let validTargets = [];
+
+      // Path 1: wahapedia leader_attachments
+      if (ds && ds.leader_attachments && ds.leader_attachments.length > 0) {
+        validTargets = ds.leader_attachments.map(attachedId => {
           let matchIdx = army.units.findIndex((au, j) => j !== i && au.datasheet?.id === attachedId);
-          // Fallback: match by name from db
-          if (matchIdx < 0) {
+          if (matchIdx < 0 && db) {
             const targetUnit = db.units.find(u2 => u2.id === attachedId);
             if (targetUnit) {
               const targetName = targetUnit.name.toLowerCase().trim();
@@ -181,9 +220,44 @@ export default function BattleDashboard({ army, db }) {
               });
             }
           }
-          const matchUnit = db.units.find(u2 => u2.id === attachedId);
-          return { attachedId, armyIndex: matchIdx, name: matchUnit?.name || attachedId };
+          const matchUnit = db?.units?.find(u2 => u2.id === attachedId);
+          return { armyIndex: matchIdx, name: matchUnit?.name || attachedId };
         }).filter(t => t.armyIndex >= 0);
+      }
+
+      // Path 2: BattleScribe leaderTargets from parsed abilities
+      if (validTargets.length === 0 && u.leaderTargets && u.leaderTargets.length > 0) {
+        for (const targetName of u.leaderTargets) {
+          const tLower = targetName.toLowerCase().trim();
+          const isAllCaps = targetName === targetName.toUpperCase() && targetName.includes(' ');
+          
+          army.units.forEach((au, j) => {
+            if (j === i) return;
+            const auName = (au.datasheet?.name || au.name || '').toLowerCase().trim();
+            
+            if (isAllCaps) {
+              // Keyword-based matching: all words must appear in unit keywords/categories
+              const words = tLower.split(/\s+/);
+              const unitKeywords = (au.keywords || []).concat(au.datasheet?.keywords || []).map(k => k.toLowerCase());
+              const allMatch = words.every(w => unitKeywords.some(k => k.includes(w)));
+              if (allMatch && !validTargets.some(t => t.armyIndex === j)) {
+                validTargets.push({ armyIndex: j, name: au.datasheet?.name || au.name || targetName });
+              }
+            } else {
+              // Name-based matching
+              if (auName === tLower || auName.includes(tLower) || tLower.includes(auName)) {
+                if (!validTargets.some(t => t.armyIndex === j)) {
+                  validTargets.push({ armyIndex: j, name: au.datasheet?.name || au.name });
+                }
+              }
+            }
+          });
+        }
+      }
+
+      if (validTargets.length > 0) {
+        characters.push(i);
+        targets[i] = validTargets;
       }
     });
     return { characters, targets };
@@ -243,7 +317,6 @@ export default function BattleDashboard({ army, db }) {
   }
 
   // Build display units accounting for leader attachments
-  const attachedCharIndices = new Set(Object.keys(leaderAttachments).map(Number));
   const bodyguardToLeader = {};
   for (const [charIdx, bgIdx] of Object.entries(leaderAttachments)) {
     if (!bodyguardToLeader[bgIdx]) bodyguardToLeader[bgIdx] = [];
@@ -291,9 +364,6 @@ export default function BattleDashboard({ army, db }) {
           ...groupedUnits.map((group, gi) => {
             const u = group.units[0];
             const i = u.originalIndex;
-            // Skip if this unit is attached as a leader elsewhere
-            if (attachedCharIndices.has(i) && group.count === 1) return null;
-            
             const ds = u.datasheet;
             const leaders = (bodyguardToLeader[i] || []).map(ci => army.units[ci]);
             const isCharacter = leaderData.characters.includes(i);
@@ -306,6 +376,11 @@ export default function BattleDashboard({ army, db }) {
             const onRegroup = group.ungroupedBaseName ? () => {
               setUngroupedNames(prev => { const next = new Set(prev); next.delete(group.ungroupedBaseName); return next; });
             } : null;
+
+            // Find what this character is leading (if anything)
+            const leadingIdx = leaderAttachments[i];
+            const leadingUnit = leadingIdx !== undefined ? army.units[leadingIdx] : null;
+            const leadingName = leadingUnit ? (leadingUnit.datasheet?.name || leadingUnit.name || '') : null;
 
             const unitEl = ds
               ? h(UnitCard, {
@@ -320,6 +395,7 @@ export default function BattleDashboard({ army, db }) {
                   validLeaderTargets: validTargets,
                   onAttachLeader: isCharacter ? (targetIdx) => attachLeader(i, targetIdx) : null,
                   currentAttachment: leaderAttachments[i],
+                  leadingName,
                   onUngroup,
                   onRegroup,
                 })
@@ -406,9 +482,12 @@ export default function BattleDashboard({ army, db }) {
               h("button", {
                 className: `cover-toggle ${simCover ? 'active' : ''}`,
                 onClick: () => setSimCover(!simCover),
-              }, simCover ? "🛡 Cover" : "Cover"),
+              }, "Cover"),
             ),
-            h("button", { className: "btn btn-sm", onClick: runQuickSim }, "⚡ Sim"),
+            h("div", { className: "field", style: { display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } },
+              h("label", null, "\u00A0"),
+              h("button", { className: "btn btn-sm", onClick: runQuickSim }, "⚡ Sim"),
+            ),
           ),
           simResult && h("div", { className: "quick-sim-results" },
             h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
@@ -427,6 +506,16 @@ export default function BattleDashboard({ army, db }) {
             if (!grouped[type]) grouped[type] = [];
             grouped[type].push(s);
           });
+          // Sort each group: detachment stratagems first
+          for (const type of Object.keys(grouped)) {
+            grouped[type].sort((a, b) => {
+              const aIsDet = a.detachment || a.detachment_id;
+              const bIsDet = b.detachment || b.detachment_id;
+              if (aIsDet && !bIsDet) return -1;
+              if (!aIsDet && bIsDet) return 1;
+              return 0;
+            });
+          }
           const typeOrder = ['Battle Tactic', 'Strategic Ploy', 'Epic Deed', 'Other'];
           const sortedTypes = typeOrder.filter(t => grouped[t]).concat(Object.keys(grouped).filter(t => !typeOrder.includes(t)));
 
@@ -458,8 +547,12 @@ export default function BattleDashboard({ army, db }) {
                   }),
                 }, type + ` (${grouped[type].length})`, collapsedStratTypes.has(type) ? "▶" : "▼"),
                 !collapsedStratTypes.has(type) && h("div", { className: "stratagems-grid" },
-                  ...grouped[type].map((s, i) =>
-                    h("div", { key: i, className: `stratagem-card-v2 ${typeColor(s.type)}` },
+                  ...grouped[type].map((s, i) => {
+                    // Parse WHEN/TARGET/EFFECT from description
+                    const rawDesc = stripHtml(s.description);
+                    const sections = parseStratagemSections(rawDesc);
+                    
+                    return h("div", { key: i, className: `stratagem-card-v2 ${typeColor(s.type)}` },
                       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
                         h("div", null,
                           h("span", { className: `strat-type-pill ${typePillClass(s.type)}` }, s.type || 'Stratagem'),
@@ -470,9 +563,26 @@ export default function BattleDashboard({ army, db }) {
                       ),
                       h("div", { style: { fontSize: 10, color: "#5a5548", marginTop: 2 } },
                         [s.turn, s.detachment].filter(Boolean).join(' • ')),
-                      h("div", { className: "strat-desc-v2" }, ...highlightKeywords(stripHtml(s.description))),
-                    )
-                  ),
+                      sections ? h("div", { className: "strat-desc-v2 strat-sections" },
+                        sections.when && h("div", { className: "strat-section" },
+                          h("span", { className: "strat-section-label" }, "WHEN: "),
+                          ...highlightKeywords(sections.when),
+                        ),
+                        sections.target && h("div", { className: "strat-section" },
+                          h("span", { className: "strat-section-label" }, "TARGET: "),
+                          ...highlightKeywords(sections.target),
+                        ),
+                        sections.effect && h("div", { className: "strat-section" },
+                          h("span", { className: "strat-section-label" }, "EFFECT: "),
+                          ...highlightKeywords(sections.effect),
+                        ),
+                        sections.restrictions && h("div", { className: "strat-section" },
+                          h("span", { className: "strat-section-label" }, "RESTRICTIONS: "),
+                          ...highlightKeywords(sections.restrictions),
+                        ),
+                      ) : h("div", { className: "strat-desc-v2" }, ...highlightKeywords(rawDesc)),
+                    );
+                  }),
                 ),
               )
             ),
@@ -485,8 +595,12 @@ export default function BattleDashboard({ army, db }) {
         // Army Rules
         armyRules.length > 0 && h("div", { className: "ref-section" },
           h("h4", { className: "ref-title" }, "Army Rules"),
-          ...armyRules.map((r, i) =>
-            h("div", { key: i, className: "army-rule-card", onClick: () => {
+          ...armyRules.map((r, i) => {
+            const desc = stripHtml(r.description);
+            const isKatah = r.name && r.name.toLowerCase().includes("ka'tah");
+            const isMastery = r.name && r.name.toLowerCase().includes("martial mastery");
+            
+            return h("div", { key: i, className: "army-rule-card", onClick: () => {
               setExpandedRules(prev => {
                 const next = new Set(prev);
                 next.has(i) ? next.delete(i) : next.add(i);
@@ -494,9 +608,11 @@ export default function BattleDashboard({ army, db }) {
               });
             }},
               h("div", { className: "army-rule-header" }, r.name, expandedRules.has(i) ? "▼" : "▶"),
-              expandedRules.has(i) && h("div", { className: "army-rule-body" }, stripHtml(r.description)),
-            )
-          ),
+              expandedRules.has(i) && h("div", { className: "army-rule-body", onClick: e => e.stopPropagation() },
+                (isKatah || isMastery) ? renderStanceRule(desc) : h("span", null, ...highlightKeywords(desc)),
+              ),
+            );
+          }),
         ),
 
         // Turn Order
