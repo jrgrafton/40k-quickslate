@@ -8,12 +8,14 @@ import SearchBar from "./components/SearchBar.js";
 import UnitCard from "./components/UnitCard.js";
 import FactionBrowser from "./components/FactionBrowser.js";
 import DetachmentViewer from "./components/DetachmentViewer.js";
+import BattleDashboard from "./components/BattleDashboard.js";
 import LoadingScreen from "./components/LoadingScreen.js";
 import DataStatus from "./components/DataStatus.js";
 import { loadDatabase, getDatabase, onLoadProgress, getCacheMeta } from "./data/wahapedia-loader.js";
 
 const TABS = [
-  { id: "army", label: "My Army" },
+  { id: "army", label: "Import Army" },
+  { id: "battle", label: "⚔️ Battle" },
   { id: "browse", label: "Browse" },
   { id: "probability", label: "Probability" },
   { id: "simulator", label: "Simulator" },
@@ -22,11 +24,12 @@ const TABS = [
 ];
 
 function App() {
-  const [tab, setTab] = useState("browse");
+  const [tab, setTab] = useState("army");
   const [db, setDb] = useState(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState({ loaded: 0, total: 14, message: 'Initializing...' });
   const [error, setError] = useState(null);
+  const [army, setArmy] = useState(null);
 
   const doLoad = useCallback(async (force = false) => {
     setLoading(true);
@@ -47,6 +50,11 @@ function App() {
     return unsub;
   }, [doLoad]);
 
+  function handleArmyLoaded(parsedArmy) {
+    setArmy(parsedArmy);
+    setTab("battle");
+  }
+
   if (loading && !db) {
     return h(LoadingScreen, { progress, error });
   }
@@ -58,7 +66,7 @@ function App() {
         ...TABS.map(t =>
           h("button", {
             key: t.id,
-            className: `tab ${tab === t.id ? "active" : ""}`,
+            className: `tab ${tab === t.id ? "active" : ""} ${t.id === "battle" && army ? "tab-battle-ready" : ""}`,
             onClick: () => setTab(t.id),
           }, t.label)
         ),
@@ -67,7 +75,8 @@ function App() {
     h(DataStatus, { db, onRefresh: () => doLoad(true), loading }),
     h("main", { className: "main" },
       error && !db && h("div", { className: "card", style: { color: '#cc2222' } }, "Error: ", error),
-      tab === "army" && h(ArmyList, { db }),
+      tab === "army" && h(ArmyList, { db, onArmyLoaded: handleArmyLoaded }),
+      tab === "battle" && h(BattleDashboard, { army, db }),
       tab === "browse" && h(FactionBrowser, { db }),
       tab === "probability" && h(ProbabilityCalc, { db }),
       tab === "simulator" && h(Simulator, { db }),
