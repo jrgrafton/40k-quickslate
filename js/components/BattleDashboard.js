@@ -545,18 +545,9 @@ export default function BattleDashboard({ army, db }) {
             const leadingName = leadingUnit ? (leadingUnit.datasheet?.name || leadingUnit.name || '') : null;
 
             // Calculate model count for this group
-            // Priority: parsed model count > unit_composition max > wahapedia models array > 1
-            let singleModelCount = (u.models && u.models > 1) ? u.models : 0;
-            if (!singleModelCount && ds?.unit_composition) {
-              // Parse max from strings like "4-5 Custodian Guard", "1 Shield-Captain"
-              for (const comp of ds.unit_composition) {
-                const stripped = comp.replace(/<[^>]*>/g, '');
-                const nums = stripped.match(/(\d+)(?:-(\d+))?\s/);
-                if (nums) singleModelCount += parseInt(nums[2] || nums[1]) || 0;
-              }
-            }
-            if (!singleModelCount) singleModelCount = ds?.models?.length || 1;
-            const totalModelCount = typeof singleModelCount === 'number' ? singleModelCount * group.count : group.count;
+            // Only show if we have a real count from the parsed roster data
+            const singleModelCount = (u.models && u.models > 1) ? u.models : null;
+            const totalModelCount = singleModelCount ? singleModelCount * group.count : null;
 
             const unitEl = ds
               ? h(UnitCard, {
