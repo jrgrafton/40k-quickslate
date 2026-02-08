@@ -544,10 +544,18 @@ export default function BattleDashboard({ army, db }) {
             const leadingUnit = leadingIdx !== undefined ? army.units[leadingIdx] : null;
             const leadingName = leadingUnit ? (leadingUnit.datasheet?.name || leadingUnit.name || '') : null;
 
-            // Calculate model count for this group
-            // Only show if we have a real count from the parsed roster data
-            const singleModelCount = (u.models && u.models > 1) ? u.models : null;
-            const totalModelCount = singleModelCount ? singleModelCount * group.count : null;
+            // Calculate model count — sum actual parsed counts across all units in group
+            const totalModelCount = (() => {
+              let sum = 0;
+              let anyFound = false;
+              for (const gu of group.units) {
+                if (gu.models && gu.models > 1) {
+                  sum += gu.models;
+                  anyFound = true;
+                }
+              }
+              return anyFound ? sum : null;
+            })();
 
             const unitEl = ds
               ? h(UnitCard, {

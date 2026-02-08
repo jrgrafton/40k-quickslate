@@ -102,16 +102,17 @@ export default function UnitCard({
           )
         ),
         unit.points != null && h("span", { className: "buc-pts" }, unit.points + "pts"),
-        modelCount && h("span", { className: "buc-models" },
-          groupCount > 1
-            ? `${modelCount} models (${groupCount} units)`
-            : `${modelCount} models`
-        ),
       ),
       h("div", { className: "buc-tags" },
         invSv && h("span", { className: "buc-tag" }, invSv + "+ inv"),
         ...filteredRules.slice(0, 4).map((r, i) => h("span", { key: 'r' + i, className: "buc-tag" }, r.name)),
         ...abilities.slice(0, 4).map((a, i) => h("span", { key: 'a' + i, className: "buc-tag buc-tag-ability", title: stripHtml(a.description || a.desc || '') }, a.name)),
+      ),
+      // Model count at bottom-right
+      modelCount && h("div", { className: "buc-model-count" },
+        groupCount > 1
+          ? `${modelCount} models (${groupCount} units)`
+          : `${modelCount} models`
       ),
       // Leading indicator (clickable to detach)
       leadingName && h("div", {

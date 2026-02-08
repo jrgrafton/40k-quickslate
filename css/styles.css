@@ -372,6 +372,10 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 .buc-models {
   font-size: 9px; color: var(--text-muted); margin-left: 8px; font-style: italic;
 }
+.buc-model-count {
+  font-size: 9px; color: var(--text-muted); font-style: italic;
+  text-align: right; margin-top: 4px;
+}
 
 .buc-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .buc-tag {
