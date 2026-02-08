@@ -1,6 +1,7 @@
 import { createElement as h, useState } from "react";
 import { getRoleColor } from "../data/quick-reference.js";
 import { stripHtml } from "../utils/helpers.js";
+import { getKeywordTooltip } from "../data/keyword-definitions.js";
 
 // Known weapon keywords that should NOT show as unit abilities
 const WEAPON_KEYWORDS = new Set([
@@ -15,10 +16,9 @@ const WEAPON_KEYWORDS = new Set([
 function isWeaponKeyword(name) {
   if (!name) return false;
   const lower = name.toLowerCase().trim();
-  for (const kw of WEAPON_KEYWORDS) {
-    if (lower === kw || lower.startsWith(kw)) return true;
-  }
-  // Match patterns like "Anti-X N+", "Sustained Hits N", "Melta N", "Rapid Fire N"
+  // Exact match only — "psychic" matches but "Psychic Veil (Psychic)" does not
+  if (WEAPON_KEYWORDS.has(lower)) return true;
+  // Pattern match for parameterized keywords like "Anti-X N+", "Sustained Hits N"
   if (/^anti-\w+\s*\d/i.test(lower)) return true;
   if (/^(sustained hits|rapid fire|melta|blast)\s*\d/i.test(lower)) return true;
   return false;
@@ -36,7 +36,7 @@ function isValidAbility(a) {
 
 export default function UnitCard({ 
   unit, compact = false, battleMode = false, parsedData = null,
-  groupCount = 1, attachedLeaders = [], isCharacter = false,
+  groupCount = 1, modelCount = null, attachedLeaders = [], isCharacter = false,
   validLeaderTargets = [], onAttachLeader = null, currentAttachment = undefined,
   leadingName = null,
   onUngroup = null, onRegroup = null,
@@ -101,6 +101,11 @@ export default function UnitCard({
           )
         ),
         unit.points != null && h("span", { className: "buc-pts" }, unit.points + "pts"),
+        modelCount && h("span", { className: "buc-models" },
+          groupCount > 1
+            ? `${modelCount} models (${groupCount} units)`
+            : `${modelCount} models`
+        ),
       ),
       h("div", { className: "buc-tags" },
         invSv && h("span", { className: "buc-tag" }, invSv + "+ inv"),
@@ -154,7 +159,12 @@ export default function UnitCard({
               h("td", null, w.S),
               h("td", null, w.AP),
               h("td", null, w.D),
-              h("td", { className: "wt-keywords" }, kwText ? h("span", { className: "weapon-kw-pill" }, kwText) : null),
+              h("td", { className: "wt-keywords" }, ...(() => {
+                if (!kwText) return [];
+                return kwText.split(/,\s*/).filter(Boolean).map((kw, ki) =>
+                  h("span", { key: ki, className: "weapon-kw-pill", title: getKeywordTooltip(kw.trim()) }, kw.trim())
+                );
+              })()),
             );
           }),
         ),

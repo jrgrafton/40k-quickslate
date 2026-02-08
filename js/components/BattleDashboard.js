@@ -168,9 +168,17 @@ function renderStanceRule(text, ruleName) {
       preamble.push(trimmed);
     }
   }
+
+  // Render preamble with bold stance name lines
+  const preambleEls = preamble.map((line, i) => {
+    if (/^\w+(\s+\w+)?\s+Stance$/i.test(line.trim())) {
+      return h("div", { key: 'p' + i, style: { fontWeight: 700, color: 'var(--gold)', marginTop: 8 } }, line);
+    }
+    return h("div", { key: 'p' + i }, ...highlightKeywords(line));
+  });
   
   return h("div", null,
-    preamble.length > 0 && h("div", { style: { marginBottom: 8 } }, ...highlightKeywords(preamble.join(' '))),
+    ...preambleEls,
     stances.length >= 2 && h("div", { className: "stance-header" }, "⚔️ SELECT ONE STANCE PER FIGHT:"),
     h("div", { className: "stance-options" },
       ...stances.map((s, i) =>
@@ -393,6 +401,17 @@ export default function BattleDashboard({ army, db }) {
       twinLinked,
       antiCrit: antiMatch ? parseInt(antiMatch[1]) : 0,
     };
+
+    // Check attacker abilities for re-rolls
+    const attackerAbilities = (attackerUnit.datasheet?.abilities || attackerUnit.abilities || []);
+    for (const ab of attackerAbilities) {
+      const abDesc = (ab.description || ab.desc || '').toLowerCase();
+      if (abDesc.includes('re-roll a wound roll of 1')) opts.rerollWoundOnes = true;
+      if (abDesc.includes('re-roll the wound roll')) opts.rerollWoundAll = true;
+      if (abDesc.includes('re-roll a hit roll of 1')) opts.rerollHitOnes = true;
+      if (abDesc.includes('re-roll the hit roll')) opts.rerollHitAll = true;
+    }
+
     setSimResult(runSimulation(opts, 5000));
   }
 
@@ -483,6 +502,10 @@ export default function BattleDashboard({ army, db }) {
             const leadingUnit = leadingIdx !== undefined ? army.units[leadingIdx] : null;
             const leadingName = leadingUnit ? (leadingUnit.datasheet?.name || leadingUnit.name || '') : null;
 
+            // Calculate model count for this group
+            const singleModelCount = u.models || ds?.models?.length || 1;
+            const totalModelCount = typeof singleModelCount === 'number' ? singleModelCount * group.count : group.count;
+
             const unitEl = ds
               ? h(UnitCard, {
                   key: 'g' + gi,
@@ -491,6 +514,7 @@ export default function BattleDashboard({ army, db }) {
                   battleMode: true,
                   parsedData: u,
                   groupCount: group.count,
+                  modelCount: totalModelCount,
                   attachedLeaders: leaders,
                   isCharacter,
                   validLeaderTargets: validTargets,
@@ -507,6 +531,7 @@ export default function BattleDashboard({ army, db }) {
                   battleMode: true,
                   parsedData: u,
                   groupCount: group.count,
+                  modelCount: totalModelCount,
                   onUngroup,
                   onRegroup,
                 });
@@ -762,7 +787,17 @@ export default function BattleDashboard({ army, db }) {
             }},
               h("div", { className: "army-rule-header" }, r.name, expandedRules.has(i) ? "▼" : "▶"),
               expandedRules.has(i) && h("div", { className: "army-rule-body", onClick: e => e.stopPropagation() },
-                (isKatah || isMastery) ? renderStanceRule(desc, r.name) : h("span", { style: { whiteSpace: 'pre-line' } }, ...highlightKeywords(desc)),
+                (isKatah || isMastery) ? renderStanceRule(desc, r.name) : (() => {
+                  const ruleLines = desc.split('\n');
+                  return h("div", { style: { whiteSpace: 'pre-line' } },
+                    ...ruleLines.map((line, li) => {
+                      if (/^\w+(\s+\w+)?\s+Stance$/i.test(line.trim())) {
+                        return h("div", { key: li, style: { fontWeight: 700, color: 'var(--gold)', marginTop: 8 } }, line);
+                      }
+                      return h("span", { key: li }, ...highlightKeywords(line), li < ruleLines.length - 1 ? '\n' : '');
+                    })
+                  );
+                })(),
               ),
             );
           }),

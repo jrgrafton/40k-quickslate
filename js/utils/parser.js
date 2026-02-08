@@ -237,6 +237,25 @@ function extractDetachmentName(sel) {
   return sel.name || '';
 }
 
+function applyEnhancementEffects(unit) {
+  if (!unit.enhancements) return;
+  for (const enh of unit.enhancements) {
+    const desc = (enh.description || '').toLowerCase();
+    const addMatch = desc.match(/add\s+(\d+)\s+to\s+(?:the bearer'?s?\s+)?(\w+)\s+characteristic/i);
+    if (addMatch && unit.statProfiles?.length > 0) {
+      const amount = parseInt(addMatch[1]);
+      const stat = addMatch[2].toLowerCase();
+      const statKey = stat === 'wounds' ? 'W' : stat === 'toughness' ? 'T' : stat === 'strength' ? 'S' : null;
+      if (statKey) {
+        for (const sp of unit.statProfiles) {
+          const current = parseInt(sp[statKey]);
+          if (!isNaN(current)) sp[statKey] = String(current + amount);
+        }
+      }
+    }
+  }
+}
+
 function parseUnitSelection(sel) {
   const unit = {
     name: sel.name || 'Unknown',
@@ -301,6 +320,9 @@ function parseUnitSelection(sel) {
   if (sel.number) {
     unit.models = parseInt(sel.number) || 1;
   }
+
+  // Apply enhancement stat modifications
+  applyEnhancementEffects(unit);
 
   // Extract leader targets from "Leader" ability
   for (const ab of unit.abilities) {
@@ -372,7 +394,8 @@ function parseNestedSelection(sel, unit) {
       if (cost > 0 || abilityProfiles.some(p => p.characteristics && p.characteristics.length > 0)) {
         if (!unit.enhancements) unit.enhancements = [];
         for (const ap of abilityProfiles) {
-          const desc = (ap.characteristics && ap.characteristics[0]) ? (ap.characteristics[0].$text || ap.characteristics[0].value || '') : '';
+          const rawDesc = (ap.characteristics && ap.characteristics[0]) ? (ap.characteristics[0].$text || ap.characteristics[0].value || '') : '';
+          const desc = rawDesc.replace(/\*\*/g, '').replace(/\^\^/g, '');
           unit.enhancements.push({
             name: ap.name || sel.name || '',
             description: desc,
