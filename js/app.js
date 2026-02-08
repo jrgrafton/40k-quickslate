@@ -73,7 +73,6 @@ function App() {
       ),
     ),
     h(DataStatus, { db, onRefresh: () => doLoad(true), loading }),
-    h("div", { style: { textAlign: 'right', padding: '0 16px', fontSize: 10, color: '#5a5548', fontFamily: 'var(--font-mono)' } }, "Last updated: 2026-02-08"),
     h("main", { className: "main" },
       error && !db && h("div", { className: "card", style: { color: '#cc2222' } }, "Error: ", error),
       tab === "army" && h(ArmyList, { db, onArmyLoaded: handleArmyLoaded }),

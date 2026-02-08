@@ -101,23 +101,23 @@ function renderStanceRule(text, ruleName) {
   const nameLower = (ruleName || '').toLowerCase();
   
   // Hardcode well-known stance rules for clean display
-  if (nameLower.includes("ka'tah") && !nameLower.includes("mastery")) {
+  if ((nameLower.includes("ka'tah") || nameLower.includes("ka\u2019tah") || nameLower.includes("katah")) && !nameLower.includes("mastery")) {
     return h("div", null,
       h("div", { className: "stance-header" }, "⚔️ SELECT ONE STANCE EACH TIME THIS UNIT FIGHTS:"),
       h("div", { className: "stance-options" },
-        h("div", { className: "stance-card" }, ...highlightKeywords("■ DACATARAI: Melee weapons have [Sustained Hits 1]")),
-        h("div", { className: "stance-card" }, ...highlightKeywords("■ RENDAX: Melee weapons have [Lethal Hits]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("• DACATARAI: Melee weapons have [Sustained Hits 1]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("• RENDAX: Melee weapons have [Lethal Hits]")),
       ),
     );
   }
   
-  if (nameLower.includes("martial mastery")) {
+  if (nameLower.includes("mastery")) {
     return h("div", null,
       h("div", { style: { marginBottom: 8 } }, ...highlightKeywords("At the start of the Fight phase, this unit can change its Ka'tah stance.")),
       h("div", { className: "stance-header" }, "⚔️ STANCE OPTIONS:"),
       h("div", { className: "stance-options" },
-        h("div", { className: "stance-card" }, ...highlightKeywords("■ DACATARAI: Melee weapons have [Sustained Hits 1]")),
-        h("div", { className: "stance-card" }, ...highlightKeywords("■ RENDAX: Melee weapons have [Lethal Hits]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("• DACATARAI: Melee weapons have [Sustained Hits 1]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("• RENDAX: Melee weapons have [Lethal Hits]")),
       ),
     );
   }
@@ -135,7 +135,7 @@ function renderStanceRule(text, ruleName) {
     for (let i = 0; i < parts.length; i++) {
       const p = parts[i].trim();
       if (/^(Dacatarai|Rendax)$/i.test(p) && i + 1 < parts.length) {
-        stanceCards.push("■ " + p.toUpperCase() + ": " + parts[i + 1].trim());
+        stanceCards.push("• " + p.toUpperCase() + ": " + parts[i + 1].trim());
         i++;
       } else if (stanceCards.length === 0) {
         preambleText += (preambleText ? ' ' : '') + p;
@@ -273,7 +273,7 @@ export default function BattleDashboard({ army, db }) {
   }, [db, army.faction]);
 
   // Detect if army has Ka'tah stances (Custodes)
-  const hasKatah = useMemo(() => armyRules.some(r => r.name && r.name.toLowerCase().includes("ka'tah")), [armyRules]);
+  const hasKatah = useMemo(() => armyRules.some(r => { const n = (r.name || '').toLowerCase(); return n.includes("ka'tah") || n.includes("ka\u2019tah") || n.includes("katah"); }), [armyRules]);
   // Detect if army detachment is Shield Host (has detachment rule options)
   const isShieldHost = useMemo(() => {
     const det = (army.detachment || '').toLowerCase();
@@ -863,15 +863,16 @@ export default function BattleDashboard({ army, db }) {
               h("div", { style: { marginBottom: 8 } }, "At the start of the battle round, you can select one of the bullet points below. If you do, until the start of the next battle round, that bullet point's effects apply."),
               h("div", { className: "stance-header" }, "⚔️ SELECT ONE PER BATTLE ROUND:"),
               h("div", { className: "stance-options" },
-                h("div", { className: "stance-card" }, ...highlightKeywords("■ Each time an ADEPTUS CUSTODES model with the Martial Ka'tah ability makes a melee attack, a successful unmodified Hit roll of 5+ scores a Critical Hit.")),
-                h("div", { className: "stance-card" }, ...highlightKeywords("■ Improve the Armour Penetration characteristic of melee weapons equipped by ADEPTUS CUSTODES models with the Martial Ka'tah ability by 1.")),
+                h("div", { className: "stance-card" }, ...highlightKeywords("• Each time an ADEPTUS CUSTODES model with the Martial Ka'tah ability makes a melee attack, a successful unmodified Hit roll of 5+ scores a Critical Hit.")),
+                h("div", { className: "stance-card" }, ...highlightKeywords("• Improve the Armour Penetration characteristic of melee weapons equipped by ADEPTUS CUSTODES models with the Martial Ka'tah ability by 1.")),
               ),
             ),
           ),
           ...armyRules.map((r, i) => {
             const desc = stripHtml(r.description);
-            const isKatah = r.name && r.name.toLowerCase().includes("ka'tah");
-            const isMastery = r.name && r.name.toLowerCase().includes("martial mastery");
+            const rNameLower = (r.name || '').toLowerCase();
+            const isKatah = rNameLower.includes("ka'tah") || rNameLower.includes("ka\u2019tah") || rNameLower.includes("katah");
+            const isMastery = rNameLower.includes("mastery");
             
             return h("div", { key: i, className: "army-rule-card", onClick: () => {
               setExpandedRules(prev => {

@@ -1,6 +1,8 @@
 import { createElement as h } from "react";
 import { getCacheMeta } from "../data/wahapedia-loader.js";
 
+const BUILD_TIMESTAMP = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+
 export default function DataStatus({ db, onRefresh, loading }) {
   const meta = getCacheMeta();
   const when = meta?.timestamp ? new Date(meta.timestamp).toLocaleString() : 'Never';
@@ -15,5 +17,6 @@ export default function DataStatus({ db, onRefresh, loading }) {
       onClick: onRefresh,
       disabled: loading,
     }, loading ? "Loading..." : "↻ Refresh Data"),
+    h("span", { style: { marginLeft: 'auto', color: '#5a5548', fontSize: 10, fontFamily: 'var(--font-mono)' } }, `v${BUILD_TIMESTAMP}`),
   );
 }
