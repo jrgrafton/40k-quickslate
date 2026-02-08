@@ -104,7 +104,8 @@ export default function UnitCard({
       ),
       h("div", { className: "buc-tags" },
         invSv && h("span", { className: "buc-tag" }, invSv + "+ inv"),
-        ...filteredRules.slice(0, 4).map((r, i) => h("span", { key: i, className: "buc-tag" }, r.name)),
+        ...filteredRules.slice(0, 4).map((r, i) => h("span", { key: 'r' + i, className: "buc-tag" }, r.name)),
+        ...abilities.slice(0, 4).map((a, i) => h("span", { key: 'a' + i, className: "buc-tag buc-tag-ability", title: stripHtml(a.description || a.desc || '') }, a.name)),
       ),
       // Leading indicator (clickable to detach)
       leadingName && h("div", {
@@ -243,6 +244,13 @@ export default function UnitCard({
       renderWeaponTable(meleeWeapons, 'MELEE WEAPONS'),
     ),
 
+    // Debug: log abilities before/after filtering
+    expanded && (() => {
+      console.log(`[UnitCard] ${unit.name} — raw abilities:`, rawAbilities.map(a => a.name));
+      console.log(`[UnitCard] ${unit.name} — filtered abilities:`, abilities.map(a => a.name));
+      return null;
+    })(),
+
     // Abilities (filtered - no empty, no weapon keywords)
     expanded && abilities.length > 0 &&
       h("div", { className: "abilities-section" },
@@ -262,8 +270,10 @@ export default function UnitCard({
       onClick: e => e.stopPropagation(),
     },
       h("div", { className: "weapon-section-title" }, "LEADER — ATTACH TO"),
-      ...validLeaderTargets.map((t, i) =>
-        h("button", {
+      ...validLeaderTargets.map((t, i) => {
+        const isGrouped = t.groupCount && t.groupCount > 1;
+        const label = t.instanceLabel || t.name;
+        return h("button", {
           key: i,
           className: `btn btn-sm ${currentAttachment === t.armyIndex ? 'btn-gold' : ''}`,
           style: { marginRight: 4, marginBottom: 4 },
@@ -273,8 +283,11 @@ export default function UnitCard({
               onAttachLeader(currentAttachment === t.armyIndex ? -1 : t.armyIndex);
             }
           },
-        }, currentAttachment === t.armyIndex ? `✓ ${t.name}` : t.name),
-      ),
+        },
+          currentAttachment === t.armyIndex ? `✓ ${label}` : label,
+          isGrouped && h("span", { style: { fontSize: 9, color: '#8a8070', marginLeft: 4 } }, "(ungroup to choose specific unit)"),
+        );
+      }),
     ),
 
     // Unit composition and other details (non-battle mode only)

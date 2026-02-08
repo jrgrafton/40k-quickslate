@@ -14,6 +14,39 @@ const GAME_KEYWORDS = [
   'Pistol', 'Rapid Fire', 'One Shot', 'Overwatch', 'Battle-shock',
 ];
 
+const KEYWORD_DEFINITIONS = {
+  'Sustained Hits': 'Each time an attack is made with this weapon, if a Critical Hit is rolled, that attack scores a number of additional hits on the target as denoted by the number after the keyword.',
+  'Lethal Hits': 'Each time an attack is made with this weapon, if a Critical Hit is rolled, that attack automatically wounds the target.',
+  'Devastating Wounds': 'Each time an attack is made with this weapon, if a Critical Wound is rolled, the target suffers mortal wounds equal to the Damage characteristic and the attack sequence ends.',
+  'Feel No Pain': 'Each time this model would lose a wound, roll a D6; if the result equals or exceeds the Feel No Pain value, that wound is not lost.',
+  'Stealth': 'If every model in a unit has this ability, then each time a ranged attack is made against it, subtract 1 from that attack\'s Hit roll.',
+  'Lone Operative': 'Unless part of an Attached unit, this unit can only be selected as the target of a ranged attack if the attacking model is within 12".',
+  'Deadly Demise': 'When this model is destroyed, roll one D6. On a 6, each unit within 6" suffers a number of mortal wounds denoted by the number after the keyword.',
+  'Deep Strike': 'During the Declare Battle Formations step, this unit can be set up in Reserves instead of on the battlefield. At the end of your Movement phase, set it up anywhere on the battlefield more than 9" from all enemy models.',
+  'Infiltrators': 'During deployment, this unit can be set up anywhere on the battlefield that is more than 9" horizontally away from the enemy deployment zone and all enemy models.',
+  'Scouts': 'At the start of the first battle round, before the first turn begins, this unit can make a Normal move of up to the distance denoted (e.g. 6").',
+  'Leader': 'This model can be attached to a specific unit to form an Attached unit.',
+  'Fights First': 'Units with this ability that are eligible to fight do so in the Fights First step, before all other eligible units.',
+  'Firing Deck': 'Each time this Transport shoots, select a number of models embarked within it (as denoted). Until that shooting is resolved, those models are treated as if they were within range/line of sight of the target.',
+  'Transport': 'This model can transport models as described in its Transport capacity.',
+  'Ignores Cover': 'Each time an attack is made with this weapon, the target cannot have the Benefit of Cover against that attack.',
+  'Indirect Fire': 'This weapon can target units not visible to the attacking model. If doing so, subtract 1 from that attack\'s Hit roll, and the target has the Benefit of Cover.',
+  'Torrent': 'Each time an attack is made with this weapon, that attack automatically hits the target.',
+  'Twin-linked': 'Each time an attack is made with this weapon, you can re-roll that attack\'s Wound roll.',
+  'Precision': 'Each time an attack made with this weapon scores a Critical Hit against an Attached unit, if a Character model is visible, the attacking model can choose to have that attack allocated to the Character.',
+  'Hazardous': 'After a unit shoots or fights, roll one Hazardous test (D6) for each Hazardous weapon used. For each 1, one model equipped with a Hazardous weapon is destroyed.',
+  'Blast': 'Add 1 to the Attacks characteristic of this weapon for each five models in the target unit (rounding down).',
+  'Melta': 'Each time an attack made with this weapon targets a unit within half the weapon\'s range, increase the Damage by the amount denoted.',
+  'Lance': 'Each time an attack is made with this weapon, if the bearer made a Charge move this turn, add 1 to that attack\'s Wound roll.',
+  'Assault': 'This weapon can be used even if the bearer Advanced this turn.',
+  'Heavy': 'If the bearer\'s unit Remained Stationary this turn, add 1 to this weapon\'s Hit rolls.',
+  'Pistol': 'This weapon can be used even if the bearer\'s unit is within Engagement Range of enemy units, but must target one of those enemy units.',
+  'Rapid Fire': 'Each time this weapon is used to make a ranged attack against a target within half range, increase the Attacks by the amount denoted.',
+  'One Shot': 'The bearer can only shoot with this weapon once per battle.',
+  'Overwatch': 'Reactive stratagem allowing a unit to shoot at an enemy that is making a Normal, Advance, or Fall Back move, or charging.',
+  'Battle-shock': 'While a unit is Battle-shocked, its OC is 0, it cannot be used for Stratagems, and its models cannot use abilities other than those stated otherwise.',
+};
+
 function highlightKeywords(text) {
   if (!text) return text;
   const parts = [];
@@ -41,7 +74,10 @@ function highlightKeywords(text) {
       break;
     }
     if (earliest > 0) parts.push(remaining.slice(0, earliest));
-    parts.push(h("span", { key: 'kw' + (keyIdx++), className: "kw-pill" }, earliestKw));
+    // Find matching base keyword for tooltip lookup
+    const baseKw = GAME_KEYWORDS.find(k => earliestKw.toLowerCase().startsWith(k.toLowerCase())) || earliestKw;
+    const tooltip = KEYWORD_DEFINITIONS[baseKw] || KEYWORD_DEFINITIONS[earliestKw] || '';
+    parts.push(h("span", { key: 'kw' + (keyIdx++), className: "kw-pill", title: tooltip }, earliestKw));
     remaining = remaining.slice(earliest + earliestLen);
   }
   return parts;
@@ -61,17 +97,40 @@ function parseStratagemSections(text) {
   };
 }
 
-function renderStanceRule(text) {
-  // Split by bullet points or numbered options
+function renderStanceRule(text, ruleName) {
+  const nameLower = (ruleName || '').toLowerCase();
+  
+  // Hardcode well-known stance rules for clean display
+  if (nameLower.includes("ka'tah") && !nameLower.includes("mastery")) {
+    return h("div", null,
+      h("div", { className: "stance-header" }, "⚔️ SELECT ONE STANCE EACH TIME THIS UNIT FIGHTS:"),
+      h("div", { className: "stance-options" },
+        h("div", { className: "stance-card" }, ...highlightKeywords("■ DACATARAI: Melee weapons have [Sustained Hits 1]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("■ RENDAX: Melee weapons have [Lethal Hits]")),
+      ),
+    );
+  }
+  
+  if (nameLower.includes("martial mastery")) {
+    return h("div", null,
+      h("div", { style: { marginBottom: 8 } }, ...highlightKeywords("At the start of the Fight phase, this unit can change its Ka'tah stance.")),
+      h("div", { className: "stance-header" }, "⚔️ STANCE OPTIONS:"),
+      h("div", { className: "stance-options" },
+        h("div", { className: "stance-card" }, ...highlightKeywords("■ DACATARAI: Melee weapons have [Sustained Hits 1]")),
+        h("div", { className: "stance-card" }, ...highlightKeywords("■ RENDAX: Melee weapons have [Lethal Hits]")),
+      ),
+    );
+  }
+  
+  // Generic: split by newlines and display with proper formatting
   const lines = text.split(/\n/).filter(l => l.trim());
   const stances = [];
   const preamble = [];
   
   for (const line of lines) {
     const trimmed = line.trim();
-    // Detect stance lines (start with - or • or bullet, contain keyword-like content)
-    if (/^[-•]\s/.test(trimmed) || /^Each time/.test(trimmed) || /^Improve/.test(trimmed)) {
-      stances.push(trimmed.replace(/^[-•]\s*/, ''));
+    if (/^[-•■]\s/.test(trimmed) || /^Each time/.test(trimmed) || /^Improve/.test(trimmed)) {
+      stances.push(trimmed.replace(/^[-•■]\s*/, ''));
     } else {
       preamble.push(trimmed);
     }
@@ -367,7 +426,16 @@ export default function BattleDashboard({ army, db }) {
             const ds = u.datasheet;
             const leaders = (bodyguardToLeader[i] || []).map(ci => army.units[ci]);
             const isCharacter = leaderData.characters.includes(i);
-            const validTargets = leaderData.targets[i] || [];
+            const rawTargets = leaderData.targets[i] || [];
+            // Annotate targets with group info and instance labels
+            const validTargets = rawTargets.map(t => {
+              const targetGroup = groupedUnits.find(g => g.units.some(u => u.originalIndex === t.armyIndex));
+              const gc = targetGroup ? targetGroup.count : 1;
+              const instanceLabel = targetGroup?.ungroupedDisplayName
+                ? (army.units[t.armyIndex]?.name || t.name)
+                : t.name;
+              return { ...t, groupCount: gc, instanceLabel: gc > 1 ? t.name : instanceLabel };
+            });
 
             const displayName = group.ungroupedDisplayName || null;
             const onUngroup = group.count > 1 ? (name) => {
@@ -484,40 +552,44 @@ export default function BattleDashboard({ army, db }) {
                 onClick: () => setSimCover(!simCover),
               }, "Cover"),
             ),
-            h("div", { className: "field", style: { display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } },
-              h("label", null, "\u00A0"),
-              h("button", { className: "btn btn-sm", onClick: runQuickSim }, "⚡ Sim"),
-            ),
+            h("button", { className: "btn btn-sm sim-inline-btn", onClick: runQuickSim, style: { alignSelf: 'flex-end', height: 32, whiteSpace: 'nowrap' } }, "⚡ Sim"),
           ),
-          simResult && h("div", { className: "quick-sim-results" },
-            h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
-            h("span", { className: "sim-result-item" }, h("strong", null, simResult.meanKills.toFixed(1)), " avg kills"),
-            h("span", { className: "sim-result-item" }, h("strong", null, (simResult.wipeChance * 100).toFixed(1) + "%"), " wipe"),
-            h("span", { className: "sim-result-item" }, h("strong", null, simResult.min + "–" + simResult.max), " range"),
-          ),
+          simResult && (() => {
+            const defender = allUnits.find(u => u.id === simDefenderId);
+            const defModel = defender?.models?.[0] || {};
+            const parseN = (s) => { const n = parseInt(String(s).replace(/[^0-9]/g, '')); return isNaN(n) ? '?' : n; };
+            const dT = parseN(defModel.T || defender?.T || '?');
+            const dSv = parseN(defModel.Sv || defender?.Sv || '?');
+            const dW = parseN(defModel.W || defender?.W || '?');
+            const dInv = defModel.inv_sv && defModel.inv_sv !== '-' ? parseN(defModel.inv_sv) : null;
+            const defStr = `vs T${dT} Sv${dSv}+${dInv ? ' Inv' + dInv + '+' : ''} W${dW}`;
+            return h("div", { className: "quick-sim-results" },
+              h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
+              h("span", { className: "sim-result-item" }, h("strong", null, simResult.meanKills.toFixed(1)), " avg kills"),
+              h("span", { className: "sim-result-item" }, h("strong", null, (simResult.wipeChance * 100).toFixed(1) + "%"), " wipe"),
+              h("span", { className: "sim-result-item" }, h("strong", null, simResult.min + "–" + simResult.max), " range"),
+              h("span", { className: "sim-result-item", style: { color: '#8a8070', fontSize: 11 } }, defStr),
+            );
+          })(),
         ),
 
         // Stratagems section (moved from sidebar to main body)
         stratagems.length > 0 && (() => {
-          // Group by type
+          // Split into detachment vs core stratagems
+          const detachmentStrats = filteredStratagems.filter(s => s.detachment || s.detachment_id);
+          const coreStrats = filteredStratagems.filter(s => !s.detachment && !s.detachment_id);
+          
+          // Group core by type
           const grouped = {};
-          filteredStratagems.forEach(s => {
+          coreStrats.forEach(s => {
             const type = s.type || 'Other';
             if (!grouped[type]) grouped[type] = [];
             grouped[type].push(s);
           });
-          // Sort each group: detachment stratagems first
-          for (const type of Object.keys(grouped)) {
-            grouped[type].sort((a, b) => {
-              const aIsDet = a.detachment || a.detachment_id;
-              const bIsDet = b.detachment || b.detachment_id;
-              if (aIsDet && !bIsDet) return -1;
-              if (!aIsDet && bIsDet) return 1;
-              return 0;
-            });
-          }
           const typeOrder = ['Battle Tactic', 'Strategic Ploy', 'Epic Deed', 'Other'];
           const sortedTypes = typeOrder.filter(t => grouped[t]).concat(Object.keys(grouped).filter(t => !typeOrder.includes(t)));
+          
+          const detSectionName = (army.detachment || 'Detachment') + ' Stratagems';
 
           const typePillClass = (type) => {
             const t = (type || '').toLowerCase();
@@ -536,6 +608,54 @@ export default function BattleDashboard({ army, db }) {
               onChange: e => setStratSearch(e.target.value),
               style: { marginBottom: 10, maxWidth: 400 },
             }),
+            // Detachment stratagems first
+            detachmentStrats.length > 0 && h("div", { className: "strat-type-group" },
+              h("div", {
+                className: "strat-type-header strat-detachment-header",
+                onClick: () => setCollapsedStratTypes(prev => {
+                  const next = new Set(prev);
+                  next.has('__detachment__') ? next.delete('__detachment__') : next.add('__detachment__');
+                  return next;
+                }),
+              }, `⚔️ ${detSectionName} (${detachmentStrats.length})`, collapsedStratTypes.has('__detachment__') ? "▶" : "▼"),
+              !collapsedStratTypes.has('__detachment__') && h("div", { className: "stratagems-grid" },
+                ...detachmentStrats.map((s, i) => {
+                  const rawDesc = stripHtml(s.description);
+                  const sections = parseStratagemSections(rawDesc);
+                  return h("div", { key: 'det' + i, className: `stratagem-card-v2 ${typeColor(s.type)}` },
+                    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+                      h("div", null,
+                        h("span", { className: `strat-type-pill ${typePillClass(s.type)}` }, s.type || 'Stratagem'),
+                        h("div", { className: "strat-name-v2" }, s.name),
+                        s.phase && h("span", { className: "strat-phase-tag" }, s.phase),
+                      ),
+                      h("span", { className: "strat-cp-badge" }, s.cp_cost + " CP"),
+                    ),
+                    h("div", { style: { fontSize: 10, color: "#5a5548", marginTop: 2 } },
+                      [s.turn, s.detachment].filter(Boolean).join(' • ')),
+                    sections ? h("div", { className: "strat-desc-v2 strat-sections" },
+                      sections.when && h("div", { className: "strat-section" },
+                        h("span", { className: "strat-section-label" }, "WHEN: "),
+                        ...highlightKeywords(sections.when),
+                      ),
+                      sections.target && h("div", { className: "strat-section" },
+                        h("span", { className: "strat-section-label" }, "TARGET: "),
+                        ...highlightKeywords(sections.target),
+                      ),
+                      sections.effect && h("div", { className: "strat-section" },
+                        h("span", { className: "strat-section-label" }, "EFFECT: "),
+                        ...highlightKeywords(sections.effect),
+                      ),
+                      sections.restrictions && h("div", { className: "strat-section" },
+                        h("span", { className: "strat-section-label" }, "RESTRICTIONS: "),
+                        ...highlightKeywords(sections.restrictions),
+                      ),
+                    ) : h("div", { className: "strat-desc-v2" }, ...highlightKeywords(rawDesc)),
+                  );
+                }),
+              ),
+            ),
+            // Core stratagems by type
             ...sortedTypes.map(type =>
               h("div", { key: type, className: "strat-type-group" },
                 h("div", {
@@ -609,7 +729,7 @@ export default function BattleDashboard({ army, db }) {
             }},
               h("div", { className: "army-rule-header" }, r.name, expandedRules.has(i) ? "▼" : "▶"),
               expandedRules.has(i) && h("div", { className: "army-rule-body", onClick: e => e.stopPropagation() },
-                (isKatah || isMastery) ? renderStanceRule(desc) : h("span", null, ...highlightKeywords(desc)),
+                (isKatah || isMastery) ? renderStanceRule(desc, r.name) : h("span", { style: { whiteSpace: 'pre-line' } }, ...highlightKeywords(desc)),
               ),
             );
           }),

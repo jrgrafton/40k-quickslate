@@ -48,7 +48,7 @@ export default function ArmyList({ db, onArmyLoaded }) {
         // CORS blocked — try proxy chain
         const proxies = [
           `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
-          `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`,
+          `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
         ];
         res = null;
         for (const proxyUrl of proxies) {
@@ -58,7 +58,7 @@ export default function ArmyList({ db, onArmyLoaded }) {
           } catch (e2) { /* try next */ }
         }
         if (!res) {
-          setYsError(`Network error (CORS blocked). Open this link in a new tab, copy the JSON, and paste it in the text box below:`);
+          setYsError(`CORS_BLOCKED`);
           setYsLoading(false);
           return;
         }
@@ -141,13 +141,30 @@ Redemptor Dreadnought [210pts]
         ),
       ),
       ysError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, 
-        ysError,
-        ysError.includes('CORS') && ysCode.trim() && h("a", {
-          href: `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(ysCode.trim())}`,
-          target: "_blank",
-          rel: "noopener",
-          style: { display: 'block', color: '#c9a84c', marginTop: 4 },
-        }, "📋 Open direct link →"),
+        ysError === 'CORS_BLOCKED' ? h("div", null,
+          h("p", null, "Network error (CORS blocked). Try one of these options:"),
+          h("a", {
+            href: `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(ysCode.trim())}`,
+            target: "_blank",
+            rel: "noopener",
+            style: { display: 'block', color: '#c9a84c', margin: '6px 0' },
+          }, "📋 1. Open direct link in new tab →"),
+          h("p", { style: { fontSize: 11, color: '#8a8070', marginBottom: 4 } }, "2. Copy the JSON from that page and paste it below:"),
+          h("textarea", {
+            placeholder: "Paste the JSON response here...",
+            style: { width: '100%', minHeight: 80, marginTop: 4 },
+            onChange: e => {
+              try {
+                const json = JSON.parse(e.target.value.trim());
+                if (json.armyData && json.order) {
+                  const parsed = parseYellowScribeAPI(json);
+                  loadArmy(parsed);
+                  setYsError(null);
+                }
+              } catch (err) { /* wait for valid JSON */ }
+            },
+          }),
+        ) : ysError,
       ),
     ),
 

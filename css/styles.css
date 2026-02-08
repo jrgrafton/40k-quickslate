@@ -605,6 +605,21 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 }
 .strat-type-header:hover { color: var(--text-primary); }
 
+/* Ability tags in compact cards */
+.buc-tag-ability {
+  background: rgba(201, 168, 76, 0.1); border-color: var(--gold-dim); color: var(--gold);
+  cursor: help;
+}
+
+/* Detachment stratagem header */
+.strat-detachment-header {
+  color: var(--gold) !important; font-size: 12px !important;
+  border-bottom: 2px solid var(--gold-dim) !important;
+}
+
+/* Sim inline button */
+.sim-inline-btn { flex-shrink: 0; min-width: 70px; }
+
 /* Regroup button */
 .regroup-btn {
   font-size: 9px; color: var(--gold); cursor: pointer; padding: 1px 5px;
