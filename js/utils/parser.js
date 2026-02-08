@@ -34,6 +34,25 @@ export function parseYellowScribeAPI(json) {
     units: [],
   };
 
+  // Extract detachment from top-level fields
+  if (json.detachment) {
+    result.detachment = typeof json.detachment === 'string' ? json.detachment : (json.detachment.name || '');
+  } else if (json.detachmentName) {
+    result.detachment = json.detachmentName;
+  }
+
+  // Extract faction from top-level fields
+  if (json.faction) {
+    result.faction = typeof json.faction === 'string' ? json.faction : (json.faction.name || '');
+  } else if (json.factionName) {
+    result.faction = json.factionName;
+  }
+
+  // Extract points from top-level
+  if (json.points) {
+    result.points = parseInt(json.points) || 0;
+  }
+
   for (const uuid of order) {
     const data = armyData[uuid];
     if (!data) continue;
@@ -41,6 +60,15 @@ export function parseYellowScribeAPI(json) {
     const factionKeywords = data.factionKeywords || [];
     if (!result.faction && factionKeywords.length > 0) {
       result.faction = factionKeywords[0];
+    }
+
+    // Try to extract detachment from unit data if not found at top level
+    if (!result.detachment) {
+      if (data.detachment) {
+        result.detachment = typeof data.detachment === 'string' ? data.detachment : (data.detachment.name || '');
+      } else if (data.detachmentName) {
+        result.detachment = data.detachmentName;
+      }
     }
 
     const keywords = data.keywords || [];
@@ -96,9 +124,12 @@ export function parseYellowScribeAPI(json) {
     // Model count
     const modelCount = data.models?.totalNumberOfModels || 1;
 
+    // Points per unit
+    const unitPoints = data.points || data.cost || 0;
+
     const unit = {
       name: data.name || 'Unknown',
-      points: 0,
+      points: parseInt(unitPoints) || 0,
       models: modelCount,
       category: role,
       role: role,
@@ -114,7 +145,9 @@ export function parseYellowScribeAPI(json) {
     result.units.push(unit);
   }
 
-  result.points = result.units.reduce((sum, u) => sum + (u.points || 0), 0);
+  if (result.points === 0) {
+    result.points = result.units.reduce((sum, u) => sum + (u.points || 0), 0);
+  }
   return result;
 }
 
@@ -339,6 +372,7 @@ function parseNestedSelection(sel, unit) {
 
 /**
  * Parse a Yellow Scribe format army list (original parser)
+ * Supports both "Faction: Value" and "FACTION\nValue" formats
  */
 function parseYellowScribe(text) {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
@@ -352,17 +386,42 @@ function parseYellowScribe(text) {
   let currentCategory = "";
   let currentUnit = null;
 
-  for (const line of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     if (line.startsWith("++")) continue;
 
+    // "Faction: Value" format
     const factionMatch = line.match(/^Faction:\s*(.+)/i);
     if (factionMatch) { result.faction = factionMatch[1].trim(); continue; }
 
+    // "FACTION" on its own line, value on next line
+    if (line.toUpperCase() === 'FACTION' && idx + 1 < lines.length) {
+      result.faction = lines[idx + 1].trim();
+      idx++;
+      continue;
+    }
+
+    // "Detachment: Value" format
     const detMatch = line.match(/^Detachment:\s*(.+)/i);
     if (detMatch) { result.detachment = detMatch[1].trim(); continue; }
 
+    // "DETACHMENT" on its own line, value on next line
+    if (line.toUpperCase() === 'DETACHMENT' && idx + 1 < lines.length) {
+      result.detachment = lines[idx + 1].trim();
+      idx++;
+      continue;
+    }
+
+    // "Points: N" format
     const ptsMatch = line.match(/^Points:\s*(\d+)/i);
     if (ptsMatch) { result.points = parseInt(ptsMatch[1]); continue; }
+
+    // "POINTS" on its own line, value on next line
+    if (line.toUpperCase() === 'POINTS' && idx + 1 < lines.length) {
+      const pVal = parseInt(lines[idx + 1].trim());
+      if (!isNaN(pVal)) { result.points = pVal; idx++; }
+      continue;
+    }
 
     const catMatch = line.match(/^\+\s*(.+?)\s*\+$/);
     if (catMatch) { currentCategory = catMatch[1].trim(); continue; }

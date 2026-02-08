@@ -43,12 +43,21 @@ export default function ArmyList({ db, onArmyLoaded }) {
       let res;
       try {
         res = await fetch(directUrl);
+        if (!res.ok) throw new Error('not ok');
       } catch (e) {
-        // CORS blocked — try proxy
-        try {
-          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(directUrl)}`;
-          res = await fetch(proxyUrl);
-        } catch (e2) {
+        // CORS blocked — try proxy chain
+        const proxies = [
+          `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
+        ];
+        res = null;
+        for (const proxyUrl of proxies) {
+          try {
+            const r = await fetch(proxyUrl);
+            if (r.ok) { res = r; break; }
+          } catch (e2) { /* try next */ }
+        }
+        if (!res) {
           setYsError(`Network error (CORS blocked). Try opening this URL and pasting the JSON in the box below:\n${directUrl}`);
           setYsLoading(false);
           return;

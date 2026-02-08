@@ -204,9 +204,25 @@ function groupBy(arr, key) {
 // Cache management
 function saveToCache(db) {
   try {
-    // Split into chunks if too large for localStorage
     const json = JSON.stringify(db);
-    localStorage.setItem(CACHE_KEY, json);
+    try {
+      localStorage.setItem(CACHE_KEY, json);
+    } catch (e) {
+      // Quota exceeded — clear old data and retry once
+      try {
+        // Clear all wahapedia cache keys
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('wahapedia_cache')) keysToRemove.push(key);
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+        localStorage.setItem(CACHE_KEY, json);
+      } catch (e2) {
+        // Still failed — skip caching silently
+        return false;
+      }
+    }
     localStorage.setItem(CACHE_META_KEY, JSON.stringify({
       timestamp: Date.now(),
       unitCount: db.units.length,
@@ -214,7 +230,7 @@ function saveToCache(db) {
     }));
     return true;
   } catch (e) {
-    console.warn('Cache save failed (storage full?):', e);
+    // Skip caching silently
     return false;
   }
 }
