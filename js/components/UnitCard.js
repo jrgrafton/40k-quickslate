@@ -163,7 +163,7 @@ export default function UnitCard({
               h("td", { className: "wt-keywords" }, ...(() => {
                 if (!kwText) return [];
                 return kwText.split(/,\s*/).filter(Boolean).map((kw, ki) =>
-                  h("span", { key: ki, className: "weapon-kw-pill", title: getKeywordTooltip(kw.trim()) }, kw.trim())
+                  h("span", { key: ki, className: "weapon-kw-pill", "data-tip": getKeywordTooltip(kw.trim()) || undefined }, kw.trim())
                 );
               })()),
             );

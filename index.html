@@ -19,5 +19,46 @@
   }
   </script>
   <script type="module" src="js/app.js"></script>
+  <div id="kw-tooltip"></div>
+  <script>
+  // Fixed-position tooltip for .kw-pill and .weapon-kw-pill elements
+  // Uses data-tip attribute to avoid native title tooltip delay
+  (function() {
+    const tip = document.getElementById('kw-tooltip');
+    let active = null;
+
+    document.addEventListener('mouseover', function(e) {
+      const el = e.target.closest('.kw-pill[data-tip], .weapon-kw-pill[data-tip]');
+      if (!el) return;
+      active = el;
+      tip.textContent = el.getAttribute('data-tip');
+      tip.classList.add('visible');
+      position(el);
+    });
+
+    document.addEventListener('mouseout', function(e) {
+      const el = e.target.closest('.kw-pill[data-tip], .weapon-kw-pill[data-tip]');
+      if (el && el === active) {
+        tip.classList.remove('visible');
+        active = null;
+      }
+    });
+
+    function position(el) {
+      const r = el.getBoundingClientRect();
+      const tw = tip.offsetWidth;
+      const th = tip.offsetHeight;
+      let left = r.left + r.width / 2 - tw / 2;
+      let top = r.top - th - 6;
+      // If above clips, show below
+      if (top < 4) top = r.bottom + 6;
+      // Clamp horizontal
+      if (left < 4) left = 4;
+      if (left + tw > window.innerWidth - 4) left = window.innerWidth - tw - 4;
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    }
+  })();
+  </script>
 </body>
 </html>

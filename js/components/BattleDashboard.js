@@ -77,7 +77,7 @@ function highlightKeywords(text) {
     // Find matching base keyword for tooltip lookup
     const baseKw = GAME_KEYWORDS.find(k => earliestKw.toLowerCase().startsWith(k.toLowerCase())) || earliestKw;
     const tooltip = KEYWORD_DEFINITIONS[baseKw] || KEYWORD_DEFINITIONS[earliestKw] || '';
-    parts.push(h("span", { key: 'kw' + (keyIdx++), className: "kw-pill", title: tooltip }, earliestKw));
+    parts.push(h("span", { key: 'kw' + (keyIdx++), className: "kw-pill", "data-tip": tooltip || undefined }, earliestKw));
     remaining = remaining.slice(earliest + earliestLen);
   }
   return parts;

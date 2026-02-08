@@ -497,16 +497,7 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   color: #aaccee; font-size: 9px; padding: 1px 5px; border-radius: 3px;
   margin: 1px 2px; position: relative; cursor: help;
 }
-.weapon-kw-pill[title]:hover::after {
-  content: attr(title);
-  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-  background: #1a1a1a; border: 1px solid var(--blue); color: var(--text-primary);
-  font-size: 11px; font-weight: 400; padding: 6px 10px; border-radius: 4px;
-  white-space: normal; width: max-content; max-width: 350px;
-  z-index: 10000; pointer-events: none; line-height: 1.4;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
-  margin-bottom: 4px;
-}
+/* weapon-kw-pill tooltip handled by JS tooltip system */
 
 .wargear-section { margin-top: 6px; }
 .wargear-item { margin-bottom: 4px; }
@@ -639,16 +630,7 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   font-weight: 600; white-space: nowrap;
   position: relative; cursor: help;
 }
-.kw-pill[title]:hover::after {
-  content: attr(title);
-  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-  background: #1a1a1a; border: 1px solid var(--gold-dim); color: var(--text-primary);
-  font-size: 11px; font-weight: 400; padding: 6px 10px; border-radius: 4px;
-  white-space: normal; width: max-content; max-width: 350px;
-  z-index: 10000; pointer-events: none; line-height: 1.4;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
-  margin-bottom: 4px;
-}
+/* kw-pill tooltip handled by JS tooltip system */
 
 .strat-type-group { margin-bottom: 12px; }
 .strat-type-header {
@@ -703,8 +685,6 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   cursor: pointer; transition: all 0.2s;
 }
 .stance-card:hover { background: rgba(201, 168, 76, 0.1); border-color: var(--gold); }
-.stance-card { overflow: visible; }
-.army-rule-body { overflow: visible; }
 
 /* Stratagem sections */
 .strat-sections { white-space: pre-line; }
@@ -728,3 +708,14 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   .main { padding: 8px; }
   .charge-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* JS-powered fixed tooltip — never clips */
+#kw-tooltip {
+  position: fixed; display: none; pointer-events: none;
+  background: #1a1a1a; border: 1px solid var(--gold-dim); color: var(--text-primary);
+  font-size: 11px; font-weight: 400; padding: 6px 10px; border-radius: 4px;
+  white-space: normal; max-width: 350px; line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+  z-index: 99999;
+}
+#kw-tooltip.visible { display: block; }
