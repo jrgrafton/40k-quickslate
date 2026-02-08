@@ -1,4 +1,5 @@
 // Monte Carlo combat simulator for 40K 10th Edition
+// Resolves attacks in proper 40K sequence: all hits → all wounds → all saves → allocate damage
 import { rollD6, rollExpr } from "./dice.js";
 import { woundTarget } from "./probability.js";
 
@@ -15,134 +16,147 @@ export function simulateOnce(opts) {
   const woundReq = woundTarget(opts.S, opts.T);
   const apVal = Math.abs(opts.AP || 0) + (opts.bonusAP || 0);
   const modSv = opts.Sv + apVal + (opts.cover ? 1 : 0);
-  // Invuln is NOT affected by AP or cover
   const effectiveSv = (opts.invuln && opts.invuln < modSv) ? opts.invuln : modSv;
-  // Cap: save can't be better than 2+
   const cappedSv = Math.max(2, effectiveSv);
 
   const sustainedHits = opts.sustainedHits || 0;
   const lethalHits = opts.lethalHits || false;
   const devWounds = opts.devastatingWounds || false;
   const twinLinked = opts.twinLinked || false;
-  const antiCrit = opts.antiCrit || 0; // e.g. 4 for Anti-X 4+
-  const critHitOn = opts.critHitOn || 6; // default crit on 6
+  const antiCrit = opts.antiCrit || 0;
+  const critHitOn = opts.critHitOn || 6;
+  const critWoundThreshold = antiCrit > 0 ? antiCrit : 6;
 
-  let totalDamage = 0;
-  let mortalWounds = 0;
-  let modelsLeft = opts.models || 1;
-  let currentModelWounds = opts.wounds || 1;
-  let modelsKilled = 0;
-  let totalHits = 0;
-  let totalWounds = 0;
-  let totalSavesMade = 0;
-  let totalSavesFailed = 0;
+  // ── Phase 1: Hit Rolls ──
+  let normalHits = 0;
+  let critHits = 0; // hits that were critical (for lethal/sustained)
 
-  for (let i = 0; i < totalAttacks && modelsLeft > 0; i++) {
-    // Hit roll
+  for (let i = 0; i < totalAttacks; i++) {
     let hitRoll = rollD6();
     if (hitRoll < opts.skill && hitRoll !== 6) {
       if (opts.rerollHitAll || (opts.rerollHitOnes && hitRoll === 1)) {
         hitRoll = rollD6();
       }
     }
-    if (hitRoll < opts.skill && hitRoll !== 6) continue; // miss (natural 6 always hits)
-    
-    const isCritHit = hitRoll >= critHitOn;
-    
-    // Sustained Hits: on crit hit, generate extra hits
-    let extraHits = 0;
-    if (isCritHit && sustainedHits > 0) {
-      extraHits = sustainedHits;
+    if (hitRoll < opts.skill && hitRoll !== 6) continue; // miss
+
+    const isCrit = hitRoll >= critHitOn;
+    if (isCrit) {
+      critHits++;
+      // Sustained Hits: extra hits on crit
+      if (sustainedHits > 0) normalHits += sustainedHits;
+    } else {
+      normalHits++;
+    }
+  }
+
+  const totalHits = normalHits + critHits;
+
+  // ── Phase 2: Wound Rolls ──
+  // Lethal Hits: crit hits auto-wound (skip wound roll)
+  let autoWounds = 0;       // from lethal hits — count as crit wounds
+  let normalWounds = 0;     // passed wound roll, not crit wound
+  let critWounds = 0;       // crit wound (for devastating wounds)
+
+  if (lethalHits) {
+    autoWounds = critHits;  // all crit hits auto-wound as crit wounds
+  }
+
+  // Remaining hits that need wound rolls: normal hits + (crit hits if no lethal)
+  const hitsToWound = normalHits + (lethalHits ? 0 : critHits);
+
+  for (let i = 0; i < hitsToWound; i++) {
+    let woundRoll = rollD6();
+    let isCritW = woundRoll >= critWoundThreshold;
+
+    if (!isCritW && (woundRoll < woundReq && woundRoll !== 6)) {
+      if (twinLinked || opts.rerollWoundAll || (opts.rerollWoundOnes && woundRoll === 1)) {
+        woundRoll = rollD6();
+        isCritW = woundRoll >= critWoundThreshold;
+      }
     }
 
-    // Process this hit + extra hits from sustained
-    totalHits += 1 + extraHits;
-    for (let hitNum = 0; hitNum <= extraHits && modelsLeft > 0; hitNum++) {
-      // Lethal Hits: crit hit auto-wounds (only on the original hit, not sustained extras... actually RAW all of them)
-      let autoWound = false;
-      if (isCritHit && lethalHits && hitNum === 0) {
-        autoWound = true;
-      }
-
-      let woundRoll = 0;
-      let isCritWound = false;
-      
-      if (!autoWound) {
-        // Wound roll
-        woundRoll = rollD6();
-        
-        // Anti-X: crit wound on antiCrit+ instead of 6
-        const critWoundThreshold = antiCrit > 0 ? antiCrit : 6;
-        isCritWound = woundRoll >= critWoundThreshold;
-        
-        if (!isCritWound && (woundRoll < woundReq && woundRoll !== 6)) {
-          // Twin-linked: reroll all failed wounds
-          if (twinLinked || opts.rerollWoundAll || (opts.rerollWoundOnes && woundRoll === 1)) {
-            woundRoll = rollD6();
-            isCritWound = woundRoll >= critWoundThreshold;
-          }
-        }
-        if (woundRoll < woundReq && !isCritWound) continue; // fail to wound (natural 6 always wounds)
+    if (woundRoll >= woundReq || isCritW) {
+      if (isCritW) {
+        critWounds++;
       } else {
-        isCritWound = true; // lethal hits count as auto-wound
+        normalWounds++;
       }
+    }
+  }
 
-      totalWounds++;
+  const totalWounds = autoWounds + normalWounds + critWounds;
+  let mortalWounds = 0;
 
-      // Devastating Wounds: crit wound = mortal wounds, skip save
-      if (devWounds && isCritWound) {
-        let dmg = rollExpr(opts.D);
-        if (opts.fnp && opts.fnp <= 6) {
-          let after = 0;
-          for (let d = 0; d < dmg; d++) {
-            if (rollD6() < opts.fnp) after++;
-          }
-          dmg = after;
-        }
-        mortalWounds += dmg;
-        totalDamage += dmg;
-        // Apply mortal wounds to models
-        currentModelWounds -= dmg;
-        while (currentModelWounds <= 0 && modelsLeft > 0) {
-          modelsKilled++;
-          modelsLeft--;
-          currentModelWounds = opts.wounds || 1;
-          break; // excess lost in 10th ed
-        }
-        if (currentModelWounds <= 0) currentModelWounds = opts.wounds || 1;
-        continue;
+  // ── Phase 3: Save Rolls & Damage ──
+  // Devastating Wounds (crit wounds + auto-wounds from lethal): skip save, deal mortal wounds
+  const devWoundCount = devWounds ? (critWounds + autoWounds) : 0;
+  const savableWounds = totalWounds - devWoundCount;
+
+  // Roll damage for devastating wounds
+  for (let i = 0; i < devWoundCount; i++) {
+    let dmg = rollExpr(opts.D);
+    if (opts.fnp && opts.fnp <= 6) {
+      let after = 0;
+      for (let d = 0; d < dmg; d++) {
+        if (rollD6() < opts.fnp) after++;
       }
+      dmg = after;
+    }
+    mortalWounds += dmg;
+  }
 
-      // Save roll
-      if (cappedSv <= 6) {
-        const saveRoll = rollD6();
-        if (saveRoll >= cappedSv) { totalSavesMade++; continue; } // saved
-        totalSavesFailed++;
-      } else {
-        totalSavesFailed++;
+  // Save rolls for non-devastating wounds
+  let totalSavesMade = 0;
+  let totalSavesFailed = 0;
+  const damageInstances = []; // damage values that got through saves
+
+  for (let i = 0; i < savableWounds; i++) {
+    if (cappedSv <= 6) {
+      const saveRoll = rollD6();
+      if (saveRoll >= cappedSv) { totalSavesMade++; continue; }
+    }
+    totalSavesFailed++;
+
+    // Roll damage
+    let dmg = rollExpr(opts.D);
+    if (opts.fnp && opts.fnp <= 6) {
+      let after = 0;
+      for (let d = 0; d < dmg; d++) {
+        if (rollD6() < opts.fnp) after++;
       }
+      dmg = after;
+    }
+    damageInstances.push(dmg);
+  }
 
-      // Damage
-      let dmg = rollExpr(opts.D);
+  // ── Phase 4: Allocate Damage to Models ──
+  let modelsLeft = opts.models || 1;
+  let currentModelWounds = opts.wounds || 1;
+  let modelsKilled = 0;
+  let totalDamage = 0;
 
-      // FNP
-      if (opts.fnp && opts.fnp <= 6) {
-        let dmgAfterFnp = 0;
-        for (let d = 0; d < dmg; d++) {
-          if (rollD6() < opts.fnp) dmgAfterFnp++;
-        }
-        dmg = dmgAfterFnp;
-      }
+  // Apply mortal wounds first (from devastating wounds)
+  totalDamage += mortalWounds;
+  currentModelWounds -= mortalWounds;
+  while (currentModelWounds <= 0 && modelsLeft > 0) {
+    modelsKilled++;
+    modelsLeft--;
+    if (modelsLeft > 0) {
+      currentModelWounds = (opts.wounds || 1) + currentModelWounds; // carry over... no, excess is lost in 10th
+    }
+    currentModelWounds = opts.wounds || 1;
+  }
 
-      totalDamage += dmg;
-      currentModelWounds -= dmg;
-      while (currentModelWounds <= 0 && modelsLeft > 0) {
-        modelsKilled++;
-        modelsLeft--;
-        currentModelWounds = opts.wounds || 1;
-        break;
-      }
-      if (currentModelWounds <= 0) currentModelWounds = opts.wounds || 1;
+  // Apply damage instances (in order)
+  for (const dmg of damageInstances) {
+    if (modelsLeft <= 0) break;
+    totalDamage += dmg;
+    currentModelWounds -= dmg;
+    if (currentModelWounds <= 0) {
+      modelsKilled++;
+      modelsLeft--;
+      currentModelWounds = opts.wounds || 1; // excess damage lost in 10th ed
     }
   }
 
