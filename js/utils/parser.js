@@ -288,6 +288,15 @@ function parseUnitSelection(sel) {
     }
   }
 
+  // Sum costs from nested selections (enhancements, wargear with pts)
+  function sumNestedCosts(s) {
+    let total = 0;
+    if (s.costs) total += s.costs.reduce((sum, c) => sum + (parseFloat(c.value) || 0), 0);
+    if (s.selections) for (const nested of s.selections) total += sumNestedCosts(nested);
+    return total;
+  }
+  unit.points = sumNestedCosts(sel);
+
   // Number of models from sel.number if available
   if (sel.number) {
     unit.models = parseInt(sel.number) || 1;
@@ -354,6 +363,25 @@ function extractProfiles(sel, unit) {
 function parseNestedSelection(sel, unit) {
   // Extract profiles from nested selections (weapons, abilities, models)
   extractProfiles(sel, unit);
+
+  // Detect enhancements: upgrade type with ability profiles and costs
+  if (sel.type === 'upgrade' && sel.profiles) {
+    const abilityProfiles = sel.profiles.filter(p => (p.typeName || '').toLowerCase() === 'abilities');
+    if (abilityProfiles.length > 0) {
+      const cost = sel.costs ? sel.costs.reduce((s, c) => s + (parseFloat(c.value) || 0), 0) : 0;
+      if (cost > 0 || abilityProfiles.some(p => p.characteristics && p.characteristics.length > 0)) {
+        if (!unit.enhancements) unit.enhancements = [];
+        for (const ap of abilityProfiles) {
+          const desc = (ap.characteristics && ap.characteristics[0]) ? (ap.characteristics[0].$text || ap.characteristics[0].value || '') : '';
+          unit.enhancements.push({
+            name: ap.name || sel.name || '',
+            description: desc,
+            cost: cost,
+          });
+        }
+      }
+    }
+  }
 
   // Extract rules
   if (sel.rules) {

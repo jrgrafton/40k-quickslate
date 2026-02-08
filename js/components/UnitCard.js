@@ -244,6 +244,19 @@ export default function UnitCard({
       renderWeaponTable(meleeWeapons, 'MELEE WEAPONS'),
     ),
 
+    // Enhancements
+    expanded && parsedData?.enhancements && parsedData.enhancements.length > 0 &&
+      h("div", { className: "abilities-section" },
+        battleMode && h("div", { className: "weapon-section-title" }, "ENHANCEMENTS"),
+        ...parsedData.enhancements.map((enh, i) =>
+          h("div", { key: 'enh' + i, style: { marginBottom: 4 } },
+            h("span", { style: { display: 'inline-block', background: 'rgba(201, 168, 76, 0.2)', border: '1px solid #c9a84c', color: '#c9a84c', fontSize: 10, padding: '1px 6px', borderRadius: 3, marginRight: 4, fontWeight: 700 } }, "✦ " + enh.name),
+            enh.cost > 0 && h("span", { style: { fontSize: 10, color: '#c9a84c', marginLeft: 4 } }, enh.cost + "pts"),
+            enh.description && h("div", { className: "ability-desc", style: { whiteSpace: 'pre-line' } }, stripHtml(enh.description)),
+          )
+        )
+      ),
+
     // Debug: log abilities before/after filtering
     expanded && (() => {
       console.log(`[UnitCard] ${unit.name} — raw abilities:`, rawAbilities.map(a => a.name));

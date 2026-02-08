@@ -122,6 +122,39 @@ function renderStanceRule(text, ruleName) {
     );
   }
   
+  // Try to detect known stances (Dacatarai, Rendax) in the text
+  const hasDacatarai = /dacatarai/i.test(text);
+  const hasRendax = /rendax/i.test(text);
+  
+  if (hasDacatarai && hasRendax) {
+    // Split text at stance names and render as cards
+    const parts = text.split(/(Dacatarai|Rendax)/i).filter(s => s.trim());
+    const stanceCards = [];
+    let preambleText = '';
+    
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i].trim();
+      if (/^(Dacatarai|Rendax)$/i.test(p) && i + 1 < parts.length) {
+        stanceCards.push("■ " + p.toUpperCase() + ": " + parts[i + 1].trim());
+        i++;
+      } else if (stanceCards.length === 0) {
+        preambleText += (preambleText ? ' ' : '') + p;
+      }
+    }
+    
+    if (stanceCards.length > 0) {
+      return h("div", null,
+        preambleText && h("div", { style: { marginBottom: 8 } }, ...highlightKeywords(preambleText)),
+        h("div", { className: "stance-header" }, "⚔️ SELECT ONE STANCE PER FIGHT:"),
+        h("div", { className: "stance-options" },
+          ...stanceCards.map((s, i) =>
+            h("div", { key: i, className: "stance-card" }, ...highlightKeywords(s))
+          ),
+        ),
+      );
+    }
+  }
+
   // Generic: split by newlines and display with proper formatting
   const lines = text.split(/\n/).filter(l => l.trim());
   const stances = [];
@@ -552,7 +585,7 @@ export default function BattleDashboard({ army, db }) {
                 onClick: () => setSimCover(!simCover),
               }, "Cover"),
             ),
-            h("button", { className: "btn btn-sm sim-inline-btn", onClick: runQuickSim, style: { alignSelf: 'flex-end', height: 32, whiteSpace: 'nowrap' } }, "⚡ Sim"),
+            h("button", { className: "btn", onClick: runQuickSim, style: { alignSelf: 'flex-end', height: '32px', marginBottom: '0px' } }, "⚡ Sim"),
           ),
           simResult && (() => {
             const defender = allUnits.find(u => u.id === simDefenderId);
@@ -820,6 +853,41 @@ export default function BattleDashboard({ army, db }) {
               ),
             ),
           ),
+        ),
+        // Battle-shock
+        h("div", { className: "ref-section" },
+          h("h4", { className: "ref-title" }, "Battle-shock"),
+          h("div", { style: { fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-line' } },
+            "In Command phase, test for each unit below half-strength.\nRoll 2D6 — if result > unit's Ld, they're Battle-shocked:\n• OC becomes 0\n• Can't use Stratagems on that unit\n• Unmodified saves of 1-3 always fail",
+          ),
+        ),
+
+        // Victory Points
+        h("div", { className: "ref-section" },
+          h("h4", { className: "ref-title" }, "VP Scoring"),
+          h("div", { style: { fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-line' } },
+            "At end of each Command phase (from turn 2):\n• Score primary mission (per mission pack)\n• Score up to 2 secondary objectives\n• Max 50 VP total",
+          ),
+        ),
+
+        // Deep Strike & Reserves
+        h("div", { className: "ref-section" },
+          h("h4", { className: "ref-title" }, "Deep Strike & Reserves"),
+          h("div", { style: { fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-line' } },
+            "Deep Strike: Set up in Reserves during deployment.\nArrive in Reinforcements step of your Movement:\n• Must be 9\"+ from all enemy models\n• Can arrive from Turn 2 onwards\n\nStrategic Reserves: From Turn 2, set up within 6\" of a battlefield edge (not enemy's), 9\"+ from enemies. Turn 3: any edge.",
+          ),
+          // Stratagems mentioning deep strike/reserves
+          (() => {
+            const dsStrats = filteredStratagems.filter(s => {
+              const desc = stripHtml(s.description || '').toLowerCase();
+              return desc.includes('deep strike') || desc.includes('reserves');
+            });
+            if (dsStrats.length === 0) return null;
+            return h("div", { style: { marginTop: 6, fontSize: 10, color: 'var(--gold)' } },
+              "Related stratagems: ",
+              h("span", { style: { color: 'var(--text-secondary)' } }, dsStrats.map(s => s.name).join(', ')),
+            );
+          })(),
         ),
       ),
     ),

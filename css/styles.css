@@ -395,7 +395,7 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   padding: 10px 12px; margin-top: 8px;
 }
 .quick-sim-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
-.quick-sim-row .field { flex: 1; min-width: 120px; }
+.quick-sim-row .field { flex: 1; min-width: 120px; margin-bottom: 0; }
 .quick-sim-results {
   display: flex; gap: 16px; margin-top: 8px; padding: 6px 10px;
   background: var(--bg-secondary); border-radius: var(--radius);
@@ -567,8 +567,7 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   transition: all 0.2s;
 }
 .stratagem-card-v2:hover {
-  border-color: var(--gold-dim); background: var(--bg-hover);
-  box-shadow: 0 0 8px rgba(201, 168, 76, 0.15);
+  border-color: var(--gold-dim);
 }
 .stratagem-card-v2.stratagem-battle { border-left-color: var(--green); }
 .stratagem-card-v2.stratagem-strategic { border-left-color: var(--blue); }
@@ -595,6 +594,16 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   display: inline; background: rgba(201, 168, 76, 0.15); border: 1px solid var(--gold-dim);
   color: var(--gold); font-size: 10px; padding: 0 4px; border-radius: 3px;
   font-weight: 600; white-space: nowrap;
+  position: relative; cursor: help;
+}
+.kw-pill[title]:hover::after {
+  content: attr(title);
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: #1a1a1a; border: 1px solid var(--gold-dim); color: var(--text-primary);
+  font-size: 11px; font-weight: 400; padding: 6px 10px; border-radius: 4px;
+  white-space: normal; width: max-content; max-width: 350px;
+  z-index: 1000; pointer-events: none; line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 
 .strat-type-group { margin-bottom: 12px; }

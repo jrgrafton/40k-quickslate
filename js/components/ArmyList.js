@@ -1,5 +1,5 @@
 import { createElement as h, useState } from "react";
-import { parseArmyList, parseYellowScribeAPI } from "../utils/parser.js";
+import { parseArmyList } from "../utils/parser.js";
 import { fuzzyMatchUnit } from "../data/wahapedia-loader.js";
 import UnitCard from "./UnitCard.js";
 
@@ -7,9 +7,6 @@ export default function ArmyList({ db, onArmyLoaded }) {
   const [text, setText] = useState("");
   const [army, setArmy] = useState(null);
   const [parseError, setParseError] = useState(null);
-  const [ysCode, setYsCode] = useState("");
-  const [ysLoading, setYsLoading] = useState(false);
-  const [ysError, setYsError] = useState(null);
 
   function loadArmy(parsed) {
     parsed.units = parsed.units.map(u => {
@@ -30,57 +27,6 @@ export default function ArmyList({ db, onArmyLoaded }) {
       setParseError("Parse error: " + e.message);
       console.error("Parse error:", e);
     }
-  }
-
-  async function handleYellowScribe() {
-    const code = ysCode.trim();
-    if (!code) return;
-    setYsError(null);
-    setYsLoading(true);
-    try {
-      const directUrl = `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(code)}`;
-      // Try direct fetch first, fall back to CORS proxies
-      let res;
-      try {
-        res = await fetch(directUrl);
-        if (!res.ok) throw new Error('not ok');
-      } catch (e) {
-        // CORS blocked — try proxy chain
-        const proxies = [
-          `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`,
-          `https://corsproxy.io/?${encodeURIComponent(directUrl)}`,
-        ];
-        res = null;
-        for (const proxyUrl of proxies) {
-          try {
-            const r = await fetch(proxyUrl);
-            if (r.ok) { res = r; break; }
-          } catch (e2) { /* try next */ }
-        }
-        if (!res) {
-          setYsError(`CORS_BLOCKED`);
-          setYsLoading(false);
-          return;
-        }
-      }
-      if (!res.ok) {
-        setYsError(`Error: ${res.status} ${res.statusText}. Check the code and try again.`);
-        setYsLoading(false);
-        return;
-      }
-      const json = await res.json();
-      if (!json.armyData || !json.order) {
-        setYsError("Invalid response — no army data found.");
-        setYsLoading(false);
-        return;
-      }
-      const parsed = parseYellowScribeAPI(json);
-      loadArmy(parsed);
-    } catch (e) {
-      setYsError("Error: " + e.message);
-      console.error("YellowScribe error:", e);
-    }
-    setYsLoading(false);
   }
 
   function handleFile(e) {
@@ -121,54 +67,7 @@ Redemptor Dreadnought [210pts]
 - Heavy onslaught gatling cannon`;
 
   return h("div", null,
-    // Section 1: YellowScribe Code
-    h("div", { className: "card", style: { marginBottom: 16 } },
-      h("div", { className: "card-header" },
-        h("span", { className: "card-title" }, "🟡 YellowScribe Code"),
-        h("span", { className: "card-subtitle" }, "Enter your YellowScribe share code to load an army instantly"),
-      ),
-      h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
-        h("input", {
-          type: "text",
-          value: ysCode,
-          onChange: e => setYsCode(e.target.value),
-          onKeyDown: e => e.key === 'Enter' && handleYellowScribe(),
-          placeholder: "Enter code (e.g. 3085deeb)",
-          style: { flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #3a3530', background: '#1a1816', color: '#e8e0d4', fontSize: 14 },
-        }),
-        h("button", { className: "btn", onClick: handleYellowScribe, disabled: ysLoading },
-          ysLoading ? "Loading..." : "Load"
-        ),
-      ),
-      ysError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, 
-        ysError === 'CORS_BLOCKED' ? h("div", null,
-          h("p", null, "Network error (CORS blocked). Try one of these options:"),
-          h("a", {
-            href: `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(ysCode.trim())}`,
-            target: "_blank",
-            rel: "noopener",
-            style: { display: 'block', color: '#c9a84c', margin: '6px 0' },
-          }, "📋 1. Open direct link in new tab →"),
-          h("p", { style: { fontSize: 11, color: '#8a8070', marginBottom: 4 } }, "2. Copy the JSON from that page and paste it below:"),
-          h("textarea", {
-            placeholder: "Paste the JSON response here...",
-            style: { width: '100%', minHeight: 80, marginTop: 4 },
-            onChange: e => {
-              try {
-                const json = JSON.parse(e.target.value.trim());
-                if (json.armyData && json.order) {
-                  const parsed = parseYellowScribeAPI(json);
-                  loadArmy(parsed);
-                  setYsError(null);
-                }
-              } catch (err) { /* wait for valid JSON */ }
-            },
-          }),
-        ) : ysError,
-      ),
-    ),
-
-    // Section 2: Paste/Upload
+    // Section 1: Paste/Upload
     h("div", { className: "card", style: { marginBottom: 16 } },
       h("div", { className: "card-header" },
         h("span", { className: "card-title" }, "📄 Paste or Upload"),
