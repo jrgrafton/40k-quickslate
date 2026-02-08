@@ -4,85 +4,133 @@ import { woundTarget } from "./probability.js";
 
 /**
  * Simulate a full attack sequence once.
- * @param {Object} opts
- * @param {number|string} opts.attacks - Number of attacks (or dice expr)
- * @param {number} opts.skill - BS or WS (e.g., 3 for 3+)
- * @param {number} opts.S - Strength
- * @param {number} opts.T - Toughness
- * @param {number} opts.AP - AP value (positive number)
- * @param {number|string} opts.D - Damage per wound
- * @param {number} opts.Sv - Save characteristic
- * @param {number|null} opts.invuln - Invulnerable save
- * @param {number|null} opts.fnp - Feel No Pain
- * @param {number} opts.wounds - Wounds per model
- * @param {number} opts.models - Number of defending models
- * @param {boolean} opts.rerollHitOnes
- * @param {boolean} opts.rerollHitAll
- * @param {boolean} opts.rerollWoundOnes
- * @param {boolean} opts.rerollWoundAll
- * @returns {Object} { damage, modelsKilled }
  */
 export function simulateOnce(opts) {
-  const numAttacks = rollExpr(opts.attacks);
+  const attackingModels = opts.attackingModels || 1;
+  let totalAttacks = 0;
+  for (let m = 0; m < attackingModels; m++) {
+    totalAttacks += rollExpr(opts.attacks);
+  }
+
   const woundReq = woundTarget(opts.S, opts.T);
-  const modSv = opts.Sv + Math.abs(opts.AP || 0);
+  const modSv = opts.Sv + Math.abs(opts.AP || 0) + (opts.cover ? 1 : 0);
+  // Invuln is NOT affected by AP or cover
   const effectiveSv = (opts.invuln && opts.invuln < modSv) ? opts.invuln : modSv;
+  // Cap: save can't be better than 2+
+  const cappedSv = Math.max(2, effectiveSv);
+
+  const sustainedHits = opts.sustainedHits || 0;
+  const lethalHits = opts.lethalHits || false;
+  const devWounds = opts.devastatingWounds || false;
+  const twinLinked = opts.twinLinked || false;
+  const antiCrit = opts.antiCrit || 0; // e.g. 4 for Anti-X 4+
 
   let totalDamage = 0;
+  let mortalWounds = 0;
   let modelsLeft = opts.models || 1;
   let currentModelWounds = opts.wounds || 1;
   let modelsKilled = 0;
 
-  for (let i = 0; i < numAttacks && modelsLeft > 0; i++) {
+  for (let i = 0; i < totalAttacks && modelsLeft > 0; i++) {
     // Hit roll
     let hitRoll = rollD6();
-    if (hitRoll === 1 || hitRoll < opts.skill) {
-      // Reroll?
+    if (hitRoll < opts.skill && hitRoll !== 6) {
       if (opts.rerollHitAll || (opts.rerollHitOnes && hitRoll === 1)) {
         hitRoll = rollD6();
       }
     }
-    if (hitRoll < opts.skill) continue; // miss
+    if (hitRoll < opts.skill && hitRoll !== 6) continue; // miss (natural 6 always hits)
+    
+    const isCritHit = hitRoll === 6;
+    
+    // Sustained Hits: on crit hit, generate extra hits
+    let extraHits = 0;
+    if (isCritHit && sustainedHits > 0) {
+      extraHits = sustainedHits;
+    }
 
-    // Wound roll
-    let woundRoll = rollD6();
-    if (woundRoll === 1 || woundRoll < woundReq) {
-      if (opts.rerollWoundAll || (opts.rerollWoundOnes && woundRoll === 1)) {
+    // Process this hit + extra hits from sustained
+    for (let hitNum = 0; hitNum <= extraHits && modelsLeft > 0; hitNum++) {
+      // Lethal Hits: crit hit auto-wounds (only on the original hit, not sustained extras... actually RAW all of them)
+      let autoWound = false;
+      if (isCritHit && lethalHits && hitNum === 0) {
+        autoWound = true;
+      }
+
+      let woundRoll = 0;
+      let isCritWound = false;
+      
+      if (!autoWound) {
+        // Wound roll
         woundRoll = rollD6();
+        
+        // Anti-X: crit wound on antiCrit+ instead of 6
+        const critWoundThreshold = antiCrit > 0 ? antiCrit : 6;
+        isCritWound = woundRoll >= critWoundThreshold;
+        
+        if (!isCritWound && (woundRoll < woundReq && woundRoll !== 6)) {
+          // Twin-linked: reroll all failed wounds
+          if (twinLinked || opts.rerollWoundAll || (opts.rerollWoundOnes && woundRoll === 1)) {
+            woundRoll = rollD6();
+            isCritWound = woundRoll >= critWoundThreshold;
+          }
+        }
+        if (woundRoll < woundReq && !isCritWound) continue; // fail to wound (natural 6 always wounds)
+      } else {
+        isCritWound = true; // lethal hits count as auto-wound
       }
-    }
-    if (woundRoll < woundReq) continue; // fail to wound
 
-    // Save roll
-    if (effectiveSv <= 6) {
-      const saveRoll = rollD6();
-      if (saveRoll >= effectiveSv) continue; // saved
-    }
-
-    // Damage
-    let dmg = rollExpr(opts.D);
-
-    // FNP
-    if (opts.fnp && opts.fnp <= 6) {
-      let dmgAfterFnp = 0;
-      for (let d = 0; d < dmg; d++) {
-        if (rollD6() < opts.fnp) dmgAfterFnp++;
+      // Devastating Wounds: crit wound = mortal wounds, skip save
+      if (devWounds && isCritWound) {
+        let dmg = rollExpr(opts.D);
+        if (opts.fnp && opts.fnp <= 6) {
+          let after = 0;
+          for (let d = 0; d < dmg; d++) {
+            if (rollD6() < opts.fnp) after++;
+          }
+          dmg = after;
+        }
+        mortalWounds += dmg;
+        totalDamage += dmg;
+        // Apply mortal wounds to models
+        currentModelWounds -= dmg;
+        while (currentModelWounds <= 0 && modelsLeft > 0) {
+          modelsKilled++;
+          modelsLeft--;
+          currentModelWounds = opts.wounds || 1;
+          break; // excess lost in 10th ed
+        }
+        if (currentModelWounds <= 0) currentModelWounds = opts.wounds || 1;
+        continue;
       }
-      dmg = dmgAfterFnp;
-    }
 
-    // Apply damage to models (excess spills per model)
-    totalDamage += dmg;
-    currentModelWounds -= dmg;
-    while (currentModelWounds <= 0 && modelsLeft > 0) {
-      modelsKilled++;
-      modelsLeft--;
-      currentModelWounds = opts.wounds || 1; // reset for next model (excess is lost in 10th ed)
-      // Actually in 10th ed excess damage doesn't carry over
-      break;
-    }
-    if (currentModelWounds <= 0) {
-      currentModelWounds = opts.wounds || 1;
+      // Save roll
+      if (cappedSv <= 6) {
+        const saveRoll = rollD6();
+        if (saveRoll >= cappedSv) continue; // saved
+      }
+
+      // Damage
+      let dmg = rollExpr(opts.D);
+
+      // FNP
+      if (opts.fnp && opts.fnp <= 6) {
+        let dmgAfterFnp = 0;
+        for (let d = 0; d < dmg; d++) {
+          if (rollD6() < opts.fnp) dmgAfterFnp++;
+        }
+        dmg = dmgAfterFnp;
+      }
+
+      totalDamage += dmg;
+      currentModelWounds -= dmg;
+      while (currentModelWounds <= 0 && modelsLeft > 0) {
+        modelsKilled++;
+        modelsLeft--;
+        currentModelWounds = opts.wounds || 1;
+        break;
+      }
+      if (currentModelWounds <= 0) currentModelWounds = opts.wounds || 1;
     }
   }
 
@@ -97,6 +145,7 @@ export function runSimulation(opts, N = 10000) {
   const kills = [];
   let totalDmg = 0;
   let totalKills = 0;
+  let wipeCount = 0;
 
   for (let i = 0; i < N; i++) {
     const result = simulateOnce(opts);
@@ -104,17 +153,14 @@ export function runSimulation(opts, N = 10000) {
     kills.push(result.modelsKilled);
     totalDmg += result.damage;
     totalKills += result.modelsKilled;
+    if (result.modelsKilled >= (opts.models || 1)) wipeCount++;
   }
 
-  // Build histogram
   const maxDmg = Math.max(...damages);
   const histogram = new Array(maxDmg + 1).fill(0);
   for (const d of damages) histogram[d]++;
-
-  // Convert to percentages
   const histPct = histogram.map(c => (c / N) * 100);
 
-  // Percentiles
   damages.sort((a, b) => a - b);
   const p10 = damages[Math.floor(N * 0.1)];
   const p25 = damages[Math.floor(N * 0.25)];
@@ -130,6 +176,7 @@ export function runSimulation(opts, N = 10000) {
     min: damages[0],
     max: damages[N - 1],
     histogram: histPct,
+    wipeChance: wipeCount / N,
     N,
   };
 }

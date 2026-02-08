@@ -1,5 +1,5 @@
 import { createElement as h, useState } from "react";
-import { parseArmyList } from "../utils/parser.js";
+import { parseArmyList, parseYellowScribeAPI } from "../utils/parser.js";
 import { fuzzyMatchUnit } from "../data/wahapedia-loader.js";
 import UnitCard from "./UnitCard.js";
 
@@ -7,23 +7,65 @@ export default function ArmyList({ db, onArmyLoaded }) {
   const [text, setText] = useState("");
   const [army, setArmy] = useState(null);
   const [parseError, setParseError] = useState(null);
+  const [ysCode, setYsCode] = useState("");
+  const [ysLoading, setYsLoading] = useState(false);
+  const [ysError, setYsError] = useState(null);
+
+  function loadArmy(parsed) {
+    parsed.units = parsed.units.map(u => {
+      const match = fuzzyMatchUnit(u.name, db);
+      return { ...u, datasheet: match || null };
+    });
+    setArmy(parsed);
+    if (onArmyLoaded) onArmyLoaded(parsed);
+  }
 
   function handleParse() {
     if (!text.trim()) return;
     setParseError(null);
     try {
       const parsed = parseArmyList(text);
-      // Fuzzy-match parsed units against wahapedia database
-      parsed.units = parsed.units.map(u => {
-        const match = fuzzyMatchUnit(u.name, db);
-        return { ...u, datasheet: match || null };
-      });
-      setArmy(parsed);
-      if (onArmyLoaded) onArmyLoaded(parsed);
+      loadArmy(parsed);
     } catch (e) {
       setParseError("Parse error: " + e.message);
       console.error("Parse error:", e);
     }
+  }
+
+  async function handleYellowScribe() {
+    const code = ysCode.trim();
+    if (!code) return;
+    setYsError(null);
+    setYsLoading(true);
+    try {
+      const url = `https://yellowscribe.link/get_army_by_id?id=${encodeURIComponent(code)}`;
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (e) {
+        // CORS or network error — suggest manual paste
+        setYsError(`Network error (likely CORS). Try opening this URL and pasting the JSON below: ${url}`);
+        setYsLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        setYsError(`Error: ${res.status} ${res.statusText}. Check the code and try again.`);
+        setYsLoading(false);
+        return;
+      }
+      const json = await res.json();
+      if (!json.armyData || !json.order) {
+        setYsError("Invalid response — no army data found.");
+        setYsLoading(false);
+        return;
+      }
+      const parsed = parseYellowScribeAPI(json);
+      loadArmy(parsed);
+    } catch (e) {
+      setYsError("Error: " + e.message);
+      console.error("YellowScribe error:", e);
+    }
+    setYsLoading(false);
   }
 
   function handleFile(e) {
@@ -64,10 +106,33 @@ Redemptor Dreadnought [210pts]
 - Heavy onslaught gatling cannon`;
 
   return h("div", null,
-    h("div", { className: "card" },
+    // Section 1: YellowScribe Code
+    h("div", { className: "card", style: { marginBottom: 16 } },
       h("div", { className: "card-header" },
-        h("span", { className: "card-title" }, "Import Army List"),
-        h("span", { className: "card-subtitle" }, "Paste Yellow Scribe text or BattleScribe JSON, or upload a file"),
+        h("span", { className: "card-title" }, "🟡 YellowScribe Code"),
+        h("span", { className: "card-subtitle" }, "Enter your YellowScribe share code to load an army instantly"),
+      ),
+      h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+        h("input", {
+          type: "text",
+          value: ysCode,
+          onChange: e => setYsCode(e.target.value),
+          onKeyDown: e => e.key === 'Enter' && handleYellowScribe(),
+          placeholder: "Enter code (e.g. 3085deeb)",
+          style: { flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #3a3530', background: '#1a1816', color: '#e8e0d4', fontSize: 14 },
+        }),
+        h("button", { className: "btn", onClick: handleYellowScribe, disabled: ysLoading },
+          ysLoading ? "Loading..." : "Load"
+        ),
+      ),
+      ysError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, ysError),
+    ),
+
+    // Section 2: Paste/Upload
+    h("div", { className: "card", style: { marginBottom: 16 } },
+      h("div", { className: "card-header" },
+        h("span", { className: "card-title" }, "📄 Paste or Upload"),
+        h("span", { className: "card-subtitle" }, "Paste Yellow Scribe text, BattleScribe JSON, or YellowScribe API JSON"),
       ),
       h("div", { className: "upload-area", onClick: () => document.getElementById("file-input").click() },
         h("p", null, "📄 Click to upload a .txt or .json file, or paste below"),
@@ -76,14 +141,22 @@ Redemptor Dreadnought [210pts]
       h("textarea", {
         value: text,
         onChange: e => setText(e.target.value),
-        placeholder: "Paste your army list here (Yellow Scribe text or BattleScribe JSON)...",
-        rows: 10,
+        placeholder: "Paste your army list here...",
+        rows: 8,
       }),
       parseError && h("div", { style: { color: '#cc2222', fontSize: 13, marginTop: 8 } }, parseError),
       h("div", { style: { display: "flex", gap: 8, marginTop: 12 } },
         h("button", { className: "btn", onClick: handleParse }, "Parse Army List"),
-        h("button", { className: "btn btn-gold btn-sm", onClick: () => setText(sampleList) }, "Load Sample"),
       ),
+    ),
+
+    // Section 3: Sample
+    h("div", { className: "card", style: { marginBottom: 16 } },
+      h("div", { className: "card-header" },
+        h("span", { className: "card-title" }, "🎲 Load Sample"),
+        h("span", { className: "card-subtitle" }, "Try a sample army list to see how it works"),
+      ),
+      h("button", { className: "btn btn-gold btn-sm", onClick: () => { setText(sampleList); } }, "Load Sample List"),
     ),
 
     army && h("div", null,
@@ -132,8 +205,29 @@ Redemptor Dreadnought [210pts]
                   ),
                 )
               ),
-              u.weapons && u.weapons.length > 0 && h("div", { style: { fontSize: 11, color: '#8a8070', marginTop: 6 } },
-                "Weapons: ", u.weapons.map(w => w.name).join(", ")
+              u.weapons && u.weapons.length > 0 && h("div", { style: { marginTop: 8 } },
+                h("div", { style: { fontSize: 11, fontWeight: 'bold', color: '#c0b090', marginBottom: 4 } }, "Weapons"),
+                u.weapons.map((w, wi) =>
+                  h("div", { key: wi, style: { fontSize: 11, color: '#8a8070', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 2 } },
+                    h("span", { style: { color: '#e8e0d4', minWidth: 120 } }, w.name),
+                    w.range && h("span", null, w.range),
+                    w.A && w.A !== '-' && h("span", null, "A:", w.A),
+                    w.BS_WS && w.BS_WS !== '-' && h("span", null, "BS/WS:", w.BS_WS),
+                    w.S && w.S !== '-' && h("span", null, "S:", w.S),
+                    w.AP && w.AP !== '0' && w.AP !== '-' && h("span", null, "AP:", w.AP),
+                    w.D && w.D !== '-' && h("span", null, "D:", w.D),
+                    w.keywords && h("span", { style: { color: '#a08050', fontStyle: 'italic' } }, w.keywords),
+                  )
+                ),
+              ),
+              u.abilities && u.abilities.length > 0 && h("div", { style: { marginTop: 8 } },
+                h("div", { style: { fontSize: 11, fontWeight: 'bold', color: '#c0b090', marginBottom: 4 } }, "Abilities"),
+                u.abilities.map((ab, ai) =>
+                  h("div", { key: ai, style: { fontSize: 11, color: '#8a8070', marginBottom: 2 } },
+                    h("span", { style: { color: '#e8e0d4' } }, ab.name),
+                    ab.description && h("span", null, " — ", ab.description),
+                  )
+                ),
               ),
               !u.datasheet && h("div", { style: { fontSize: 11, color: '#cc2222', marginTop: 4 } }, "⚠ No wahapedia datasheet match"),
             )

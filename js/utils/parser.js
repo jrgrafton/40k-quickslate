@@ -8,12 +8,127 @@ export function parseArmyList(text) {
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
       const json = JSON.parse(trimmed);
+      // Auto-detect YellowScribe API format
+      if (json.armyData && json.order) {
+        return parseYellowScribeAPI(json);
+      }
       return parseBattleScribeJSON(json);
     } catch (e) {
       console.warn('JSON parse failed, falling back to text parser:', e);
     }
   }
   return parseYellowScribe(trimmed);
+}
+
+/**
+ * Parse YellowScribe API response (from /get_army_by_id)
+ */
+export function parseYellowScribeAPI(json) {
+  const order = json.order || [];
+  const armyData = json.armyData || {};
+
+  const result = {
+    faction: '',
+    detachment: '',
+    points: 0,
+    units: [],
+  };
+
+  for (const uuid of order) {
+    const data = armyData[uuid];
+    if (!data) continue;
+
+    const factionKeywords = data.factionKeywords || [];
+    if (!result.faction && factionKeywords.length > 0) {
+      result.faction = factionKeywords[0];
+    }
+
+    const keywords = data.keywords || [];
+    const role = detectRole(keywords);
+
+    // Model profiles
+    const statProfiles = [];
+    if (data.modelProfiles) {
+      for (const [, prof] of Object.entries(data.modelProfiles)) {
+        statProfiles.push({
+          name: prof.name || data.name,
+          M: prof.m || '-',
+          T: prof.t || '-',
+          Sv: prof.sv || '-',
+          W: prof.w || '-',
+          Ld: prof.ld || '-',
+          OC: prof.oc || '-',
+        });
+      }
+    }
+
+    // Weapons with full stats
+    const weapons = [];
+    if (data.weapons) {
+      for (const [, w] of Object.entries(data.weapons)) {
+        weapons.push({
+          name: w.name || '',
+          type: (w.range || '').toLowerCase() === 'melee' ? 'melee' : 'ranged',
+          range: w.range || '-',
+          A: w.a || '-',
+          BS_WS: w.bsws || '-',
+          S: w.s || '-',
+          AP: w.ap || '0',
+          D: w.d || '-',
+          keywords: w.abilities || '',
+          description: w.abilities || '',
+        });
+      }
+    }
+
+    // Abilities
+    const abilities = [];
+    if (data.abilities) {
+      for (const [, ab] of Object.entries(data.abilities)) {
+        abilities.push({
+          name: ab.name || '',
+          description: ab.desc || '',
+          type: 'Ability',
+        });
+      }
+    }
+
+    // Model count
+    const modelCount = data.models?.totalNumberOfModels || 1;
+
+    const unit = {
+      name: data.name || 'Unknown',
+      points: 0,
+      models: modelCount,
+      category: role,
+      role: role,
+      statProfiles,
+      weapons,
+      abilities,
+      rules: (data.rules || []).map(r => typeof r === 'string' ? { name: r, description: '' } : r),
+      keywords,
+      factionKeywords,
+      loadout: weapons.map(w => w.name),
+    };
+
+    result.units.push(unit);
+  }
+
+  result.points = result.units.reduce((sum, u) => sum + (u.points || 0), 0);
+  return result;
+}
+
+function detectRole(keywords) {
+  const kw = keywords.map(k => k.toLowerCase());
+  if (kw.includes('character')) return 'Character';
+  if (kw.includes('battleline')) return 'Battleline';
+  if (kw.includes('dedicated transport')) return 'Dedicated Transport';
+  if (kw.includes('vehicle')) return 'Vehicle';
+  if (kw.includes('monster')) return 'Monster';
+  if (kw.includes('beast')) return 'Beast';
+  if (kw.includes('fortification')) return 'Fortification';
+  if (kw.includes('infantry')) return 'Infantry';
+  return '';
 }
 
 /**

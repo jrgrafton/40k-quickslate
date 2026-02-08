@@ -1,7 +1,8 @@
 import { createElement as h, useState, useMemo } from "react";
 import UnitCard from "./UnitCard.js";
-import { getWoundRoll, STRENGTH_VALUES, TOUGHNESS_VALUES, CHARGE_PROBABILITY, SAVE_VALUES, AP_VALUES, getModifiedSave, getRoleColor } from "../data/quick-reference.js";
+import { getWoundRoll, CHARGE_PROBABILITY, SAVE_VALUES, AP_VALUES, getModifiedSave, getRoleColor } from "../data/quick-reference.js";
 import { runSimulation } from "../engine/simulator.js";
+import { stripHtml } from "../utils/helpers.js";
 
 export default function BattleDashboard({ army, db }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -9,7 +10,13 @@ export default function BattleDashboard({ army, db }) {
   const [simWeaponIdx, setSimWeaponIdx] = useState(0);
   const [simDefenderId, setSimDefenderId] = useState("");
   const [simDefModels, setSimDefModels] = useState(5);
+  const [simAttackModels, setSimAttackModels] = useState(1);
+  const [simCover, setSimCover] = useState(false);
+  const [simFnp, setSimFnp] = useState(0);
   const [simResult, setSimResult] = useState(null);
+  const [stratSearch, setStratSearch] = useState("");
+  // Leader attachment state: { [characterUnitIndex]: bodyguardUnitIndex }
+  const [leaderAttachments, setLeaderAttachments] = useState({});
 
   if (!army) {
     return h("div", { className: "empty-state" },
@@ -17,25 +24,97 @@ export default function BattleDashboard({ army, db }) {
     );
   }
 
-  // Get detachment stratagems
-  const detachmentStratagems = useMemo(() => {
-    if (!db?.stratagems || !army.detachment) return [];
-    const detName = army.detachment.toLowerCase();
-    return db.stratagems.filter(s => {
-      if (s.legend) return false;
-      return (s.detachment || '').toLowerCase().includes(detName);
-    });
+  // Find the detachment_id that matches army.detachment
+  const detachmentObj = useMemo(() => {
+    if (!db?.detachments || !army.detachment) return null;
+    const detName = army.detachment.toLowerCase().trim();
+    return db.detachments.find(d => d.name.toLowerCase().trim() === detName) || 
+           db.detachments.find(d => d.name.toLowerCase().includes(detName) || detName.includes(d.name.toLowerCase()));
   }, [db, army.detachment]);
 
-  // Find matching faction for stratagems
-  const factionStratagems = useMemo(() => {
-    if (!db?.stratagems || !army.faction) return [];
-    const factionLower = army.faction.toLowerCase();
+  // Get stratagems: filtered by detachment + core (no faction_id)
+  const stratagems = useMemo(() => {
+    if (!db?.stratagems) return [];
+    const detId = detachmentObj?.id;
+    const detName = (army.detachment || '').toLowerCase().trim();
+    
     return db.stratagems.filter(s => {
       if (s.legend) return false;
-      return (s.faction_name || '').toLowerCase().includes(factionLower);
+      // Core stratagems (no faction_id)
+      if (!s.faction_id || s.faction_id === '') return true;
+      // Match by detachment_id or detachment name
+      if (detId && s.detachment_id === detId) return true;
+      if (detName && (s.detachment || '').toLowerCase().includes(detName)) return true;
+      return false;
     });
+  }, [db, detachmentObj, army.detachment]);
+
+  const filteredStratagems = useMemo(() => {
+    if (!stratSearch) return stratagems;
+    const q = stratSearch.toLowerCase();
+    return stratagems.filter(s =>
+      s.name.toLowerCase().includes(q) || stripHtml(s.description).toLowerCase().includes(q)
+    );
+  }, [stratagems, stratSearch]);
+
+  // Army rules from shared abilities
+  const armyRules = useMemo(() => {
+    if (!db?.sharedAbilities || !army.faction) return [];
+    const factionLower = army.faction.toLowerCase();
+    // Find faction_id that matches
+    let factionId = null;
+    if (db.factions) {
+      for (const [id, f] of Object.entries(db.factions)) {
+        if (f.name.toLowerCase().includes(factionLower) || factionLower.includes(f.name.toLowerCase())) {
+          factionId = id;
+          break;
+        }
+      }
+    }
+    if (!factionId) return [];
+    return db.sharedAbilities.filter(a => a.faction_id === factionId && a.name && a.description);
   }, [db, army.faction]);
+
+  // Group identical units
+  const groupedUnits = useMemo(() => {
+    const groups = [];
+    const seen = new Map(); // name -> group index
+    army.units.forEach((u, i) => {
+      const name = (u.name || u.datasheet?.name || '').toLowerCase().trim();
+      if (seen.has(name)) {
+        const gi = seen.get(name);
+        groups[gi].units.push({ ...u, originalIndex: i });
+        groups[gi].count++;
+        groups[gi].totalPoints += (u.points || 0);
+      } else {
+        seen.set(name, groups.length);
+        groups.push({ units: [{ ...u, originalIndex: i }], count: 1, totalPoints: u.points || 0 });
+      }
+    });
+    return groups;
+  }, [army.units]);
+
+  // Leader attachment data
+  const leaderData = useMemo(() => {
+    if (!db) return { characters: [], targets: {} };
+    const characters = [];
+    const targets = {}; // charIndex -> [{ index, name }]
+    
+    army.units.forEach((u, i) => {
+      const ds = u.datasheet;
+      if (!ds) return;
+      if (ds.leader_attachments && ds.leader_attachments.length > 0) {
+        characters.push(i);
+        targets[i] = ds.leader_attachments.map(attachedId => {
+          // Find which army unit matches this attached_id
+          const matchIdx = army.units.findIndex((au, j) => j !== i && au.datasheet?.id === attachedId);
+          const matchUnit = db.units.find(u2 => u2.id === attachedId);
+          return { attachedId, armyIndex: matchIdx, name: matchUnit?.name || attachedId };
+        }).filter(t => t.armyIndex >= 0);
+      }
+    });
+    return { characters, targets };
+  }, [army.units, db]);
 
   const allUnits = db?.units || [];
 
@@ -54,16 +133,57 @@ export default function BattleDashboard({ army, db }) {
     const W = parseN(defModel.W || defender.W || 1);
     const inv = defModel.inv_sv && defModel.inv_sv !== '-' ? parseN(defModel.inv_sv) : null;
 
+    // Parse weapon keywords
+    const desc = (weapon.description || '').toLowerCase();
+    const sustainedMatch = desc.match(/sustained hits\s*(\d+)/i);
+    const lethalHits = /lethal hits/i.test(desc);
+    const devWounds = /devastating wounds/i.test(desc);
+    const twinLinked = /twin-linked/i.test(desc);
+    const antiMatch = desc.match(/anti-\w+\s*(\d+)\+/i);
+
     const opts = {
       attacks: weapon.A, skill: parseN(weapon.BS_WS || weapon.BS || weapon.WS || 3),
       S: parseN(weapon.S || 4), T, AP: Math.abs(parseN(weapon.AP || 0)),
-      D: weapon.D, Sv, invuln: inv, fnp: null,
+      D: weapon.D, Sv, invuln: inv,
+      fnp: simFnp > 0 ? simFnp : null,
       wounds: W, models: simDefModels,
+      attackingModels: simAttackModels,
+      cover: simCover,
+      sustainedHits: sustainedMatch ? parseInt(sustainedMatch[1]) : 0,
+      lethalHits, devastatingWounds: devWounds,
+      twinLinked,
+      antiCrit: antiMatch ? parseInt(antiMatch[1]) : 0,
     };
     setSimResult(runSimulation(opts, 5000));
   }
 
-  const stratagems = detachmentStratagems.length > 0 ? detachmentStratagems : factionStratagems.slice(0, 10);
+  function attachLeader(charIdx, bodyguardIdx) {
+    setLeaderAttachments(prev => {
+      const next = { ...prev };
+      if (bodyguardIdx === -1) {
+        delete next[charIdx];
+      } else {
+        next[charIdx] = bodyguardIdx;
+      }
+      return next;
+    });
+  }
+
+  // Build display units accounting for leader attachments
+  const attachedCharIndices = new Set(Object.keys(leaderAttachments).map(Number));
+  const bodyguardToLeader = {};
+  for (const [charIdx, bgIdx] of Object.entries(leaderAttachments)) {
+    if (!bodyguardToLeader[bgIdx]) bodyguardToLeader[bgIdx] = [];
+    bodyguardToLeader[bgIdx].push(Number(charIdx));
+  }
+
+  const typeColor = (type) => {
+    const t = (type || '').toLowerCase();
+    if (t.includes('battle')) return 'stratagem-battle';
+    if (t.includes('strategic')) return 'stratagem-strategic';
+    if (t.includes('epic')) return 'stratagem-epic';
+    return '';
+  };
 
   return h("div", { className: "battle-layout" },
     // Army Overview Bar
@@ -91,29 +211,45 @@ export default function BattleDashboard({ army, db }) {
     ),
 
     h("div", { className: "battle-content" },
-      // Unit Cards Grid
+      // Main content area
       h("div", { className: "battle-main" },
+        // Unit Cards Grid
         h("div", { className: "unit-cards-grid" },
-          ...army.units.map((u, i) => {
+          ...groupedUnits.map((group, gi) => {
+            const u = group.units[0];
+            const i = u.originalIndex;
+            // Skip if this unit is attached as a leader elsewhere
+            if (attachedCharIndices.has(i) && group.count === 1) return null;
+            
             const ds = u.datasheet;
-            if (ds) {
-              return h(UnitCard, {
-                key: i,
-                unit: { ...ds, points: u.points },
-                compact: true,
-                battleMode: true,
-                parsedData: u,
-              });
-            }
-            // Fallback for unmatched units — use parsed data from BattleScribe
-            return h(UnitCard, {
-              key: i,
-              unit: buildUnitFromParsed(u),
-              compact: true,
-              battleMode: true,
-              parsedData: u,
-            });
-          }),
+            const leaders = (bodyguardToLeader[i] || []).map(ci => army.units[ci]);
+            const isCharacter = leaderData.characters.includes(i);
+            const validTargets = leaderData.targets[i] || [];
+
+            const unitEl = ds
+              ? h(UnitCard, {
+                  key: 'g' + gi,
+                  unit: { ...ds, points: group.totalPoints },
+                  compact: true,
+                  battleMode: true,
+                  parsedData: u,
+                  groupCount: group.count,
+                  attachedLeaders: leaders,
+                  isCharacter,
+                  validLeaderTargets: validTargets,
+                  onAttachLeader: isCharacter ? (targetIdx) => attachLeader(i, targetIdx) : null,
+                  currentAttachment: leaderAttachments[i],
+                })
+              : h(UnitCard, {
+                  key: 'g' + gi,
+                  unit: buildUnitFromParsed(u),
+                  compact: true,
+                  battleMode: true,
+                  parsedData: u,
+                  groupCount: group.count,
+                });
+            return unitEl;
+          }).filter(Boolean),
         ),
 
         // Quick Sim Strip
@@ -134,9 +270,15 @@ export default function BattleDashboard({ army, db }) {
                 const weapons = au?.datasheet?.weapons || au?.weapons || [];
                 return h("select", { className: "select", value: simWeaponIdx,
                   onChange: e => { setSimWeaponIdx(+e.target.value); setSimResult(null); } },
-                  ...weapons.map((w, i) => h("option", { key: i, value: i }, `${w.name} (S:${w.S} AP:${w.AP} D:${w.D})`)),
+                  ...weapons.map((w, i) => h("option", { key: i, value: i },
+                    `${w.name} (S:${w.S} AP:${w.AP} D:${w.D}${w.description ? ' [' + w.description.slice(0, 20) + ']' : ''})`)),
                 );
               })(),
+            ),
+            h("div", { className: "field" },
+              h("label", null, "# Attacking Models"),
+              h("input", { className: "input", type: "number", min: 1, max: 30, value: simAttackModels,
+                onChange: e => setSimAttackModels(+e.target.value), style: { width: 60 } }),
             ),
             h("div", { className: "field" },
               h("label", null, "Enemy Unit"),
@@ -150,22 +292,89 @@ export default function BattleDashboard({ army, db }) {
               ),
             ),
             h("div", { className: "field" },
-              h("label", null, "Models"),
+              h("label", null, "Def Models"),
               h("input", { className: "input", type: "number", min: 1, max: 30, value: simDefModels,
                 onChange: e => setSimDefModels(+e.target.value), style: { width: 60 } }),
+            ),
+            h("div", { className: "field" },
+              h("label", null, "FNP (0=none)"),
+              h("input", { className: "input", type: "number", min: 0, max: 6, value: simFnp,
+                onChange: e => setSimFnp(+e.target.value), style: { width: 60 } }),
+            ),
+            h("div", { className: "field", style: { display: 'flex', alignItems: 'flex-end' } },
+              h("label", { className: "toggle-row" },
+                h("input", { type: "checkbox", checked: simCover, onChange: e => setSimCover(e.target.checked) }),
+                "Cover"),
             ),
             h("button", { className: "btn btn-sm", onClick: runQuickSim }, "⚡ Sim"),
           ),
           simResult && h("div", { className: "quick-sim-results" },
             h("span", { className: "sim-result-item" }, h("strong", null, simResult.mean.toFixed(1)), " avg dmg"),
             h("span", { className: "sim-result-item" }, h("strong", null, simResult.meanKills.toFixed(1)), " avg kills"),
+            h("span", { className: "sim-result-item" }, h("strong", null, (simResult.wipeChance * 100).toFixed(1) + "%"), " wipe"),
             h("span", { className: "sim-result-item" }, h("strong", null, simResult.min + "–" + simResult.max), " range"),
+          ),
+        ),
+
+        // Stratagems section (moved from sidebar to main body)
+        stratagems.length > 0 && h("div", { className: "stratagems-main-section" },
+          h("h3", { className: "section-title" }, `Stratagems (${filteredStratagems.length})`),
+          h("input", {
+            className: "input",
+            placeholder: "Search stratagems...",
+            value: stratSearch,
+            onChange: e => setStratSearch(e.target.value),
+            style: { marginBottom: 10, maxWidth: 400 },
+          }),
+          h("div", { className: "stratagems-grid" },
+            ...filteredStratagems.map((s, i) =>
+              h("div", { key: i, className: `stratagem-card ${typeColor(s.type)}` },
+                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                  h("div", null,
+                    h("span", { className: "stratagem-name" }, s.name),
+                    s.phase && h("span", { className: "stratagem-phase", style: { marginLeft: 8 } }, s.phase),
+                  ),
+                  h("span", { className: "stratagem-cp" }, s.cp_cost + " CP"),
+                ),
+                h("div", { style: { fontSize: 10, color: "#5a5548", marginTop: 2 } },
+                  [s.turn, s.detachment].filter(Boolean).join(' • ')),
+                h("div", { className: "stratagem-effect" }, stripHtml(s.description)),
+              )
+            ),
           ),
         ),
       ),
 
       // Quick Reference Sidebar
       sidebarOpen && h("div", { className: "battle-sidebar" },
+        // Army Rules
+        armyRules.length > 0 && h("div", { className: "ref-section" },
+          h("h4", { className: "ref-title" }, "Army Rules"),
+          ...armyRules.slice(0, 3).map((r, i) =>
+            h("div", { key: i, className: "ref-stratagem", style: { borderLeftColor: '#c9a84c' } },
+              h("div", { className: "ref-strat-name" }, r.name),
+              h("div", { className: "ref-strat-desc" }, stripHtml(r.description).slice(0, 300) + (r.description.length > 300 ? '…' : '')),
+            )
+          ),
+        ),
+
+        // Turn Order
+        h("div", { className: "ref-section" },
+          h("h4", { className: "ref-title" }, "Turn Order"),
+          ...[ 
+            ["1. Command Phase", "Battle-shock tests, use abilities"],
+            ["2. Movement Phase", "Move, Advance, Fall Back"],
+            ["3. Shooting Phase", "Select targets, resolve attacks"],
+            ["4. Charge Phase", "Declare charges, roll 2D6"],
+            ["5. Fight Phase", "Pile in, make attacks, consolidate"],
+          ].map(([title, desc], i) =>
+            h("div", { key: i, style: { padding: '3px 0', fontSize: 11 } },
+              h("span", { style: { color: '#c9a84c', fontWeight: 700 } }, title),
+              h("span", { style: { color: '#8a8070', marginLeft: 6 } }, desc),
+            )
+          ),
+        ),
+
         // Wound Roll Table
         h("div", { className: "ref-section" },
           h("h4", { className: "ref-title" }, "Wound Roll Table"),
@@ -233,21 +442,6 @@ export default function BattleDashboard({ army, db }) {
                 ),
               ),
             ),
-          ),
-        ),
-
-        // Detachment Stratagems
-        stratagems.length > 0 && h("div", { className: "ref-section" },
-          h("h4", { className: "ref-title" }, "Stratagems"),
-          ...stratagems.slice(0, 8).map((s, i) =>
-            h("div", { key: i, className: "ref-stratagem" },
-              h("div", { className: "ref-strat-header" },
-                h("span", { className: "ref-strat-name" }, s.name),
-                h("span", { className: "ref-strat-cp" }, s.cp_cost + "CP"),
-              ),
-              h("div", { className: "ref-strat-phase" }, s.phase),
-              h("div", { className: "ref-strat-desc", dangerouslySetInnerHTML: { __html: s.description } }),
-            )
           ),
         ),
       ),
