@@ -45,6 +45,17 @@ export const KEYWORD_DEFINITIONS = {
 let _keyIdx = 0;
 export function resetKeyIdx() { _keyIdx = 0; }
 
+// Keywords that are common English words and should only match
+// when in brackets like [HEAVY] or as standalone uppercase
+const CONTEXT_SENSITIVE_KEYWORDS = new Set([
+  'heavy', 'assault', 'pistol', 'blast', 'melta', 'lance', 'leader',
+  'transport', 'stealth', 'precision', 'scouts',
+]);
+
+function isWordBoundary(ch) {
+  return !ch || /[\s,.\[\](){}:;!?/"']/.test(ch);
+}
+
 export function highlightKeywords(text) {
   if (!text) return [text];
   const parts = [];
@@ -53,13 +64,29 @@ export function highlightKeywords(text) {
     let earliest = -1, earliestLen = 0, earliestKw = '';
     for (const kw of GAME_KEYWORDS) {
       const idx = remaining.toLowerCase().indexOf(kw.toLowerCase());
-      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
-        let matchLen = kw.length;
-        if (kw === 'Anti-') {
-          const after = remaining.slice(idx + kw.length);
-          const endMatch = after.match(/^[\w]+(\s*\d+\+)?/);
-          if (endMatch) matchLen += endMatch[0].length;
-        }
+      if (idx === -1) continue;
+
+      let matchLen = kw.length;
+      if (kw === 'Anti-') {
+        const after = remaining.slice(idx + kw.length);
+        const endMatch = after.match(/^[\w]+(\s*\d+\+)?/);
+        if (endMatch) matchLen += endMatch[0].length;
+      }
+
+      // Word boundary check — keyword shouldn't be part of a larger word
+      const charBefore = idx > 0 ? remaining[idx - 1] : '';
+      const charAfter = remaining[idx + matchLen] || '';
+      if (!isWordBoundary(charBefore) || (!isWordBoundary(charAfter) && kw !== 'Anti-')) continue;
+
+      // Context-sensitive keywords: only match if in brackets [KEYWORD] or ALL CAPS
+      if (CONTEXT_SENSITIVE_KEYWORDS.has(kw.toLowerCase())) {
+        const matched = remaining.slice(idx, idx + matchLen);
+        const inBrackets = idx > 0 && remaining[idx - 1] === '[';
+        const isUpperCase = matched === matched.toUpperCase();
+        if (!inBrackets && !isUpperCase) continue;
+      }
+
+      if (earliest === -1 || idx < earliest) {
         earliest = idx;
         earliestLen = matchLen;
         earliestKw = remaining.slice(idx, idx + matchLen);
