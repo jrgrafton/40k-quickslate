@@ -38,6 +38,7 @@ export default function UnitCard({
   unit, compact = false, battleMode = false, parsedData = null,
   groupCount = 1, attachedLeaders = [], isCharacter = false,
   validLeaderTargets = [], onAttachLeader = null, currentAttachment = undefined,
+  onUngroup = null, onRegroup = null,
 }) {
   const [expanded, setExpanded] = useState(!compact);
   const [showLeaderMenu, setShowLeaderMenu] = useState(false);
@@ -73,7 +74,16 @@ export default function UnitCard({
       h("div", { className: "buc-header" },
         h("span", { className: "buc-name" },
           unit.name,
-          groupCount > 1 && h("span", { className: "group-badge" }, `×${groupCount}`),
+          groupCount > 1 && h("span", {
+            className: "group-badge",
+            title: "Click to ungroup",
+            onClick: onUngroup ? (e) => { e.stopPropagation(); onUngroup(unit.name); } : undefined,
+            style: onUngroup ? { cursor: 'pointer' } : undefined,
+          }, `×${groupCount}`),
+          onRegroup && h("button", {
+            className: "regroup-btn",
+            onClick: (e) => { e.stopPropagation(); onRegroup(); },
+          }, "regroup"),
         ),
         role && h("span", { className: "buc-role", style: { background: borderColor } }, role),
       ),
@@ -167,7 +177,16 @@ export default function UnitCard({
         ),
         h("div", { className: "unit-name" },
           unit.name,
-          groupCount > 1 && h("span", { className: "group-badge" }, `×${groupCount}`),
+          groupCount > 1 && h("span", {
+            className: "group-badge",
+            title: "Click to ungroup",
+            onClick: onUngroup ? (e) => { e.stopPropagation(); onUngroup(unit.name); } : undefined,
+            style: onUngroup ? { cursor: 'pointer' } : undefined,
+          }, `×${groupCount}`),
+          onRegroup && h("button", {
+            className: "regroup-btn",
+            onClick: (e) => { e.stopPropagation(); onRegroup(); },
+          }, "regroup"),
         ),
         !battleMode && unit.faction_name && h("span", { style: { fontSize: 11, color: '#8a8070' } }, unit.faction_name),
         role && h("span", { className: "role-badge", style: battleMode ? { background: borderColor, color: '#fff', borderColor: borderColor } : undefined }, role),

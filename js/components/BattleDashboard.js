@@ -1,8 +1,51 @@
-import { createElement as h, useState, useMemo } from "react";
+import { createElement as h, useState, useMemo, useRef, useEffect } from "react";
 import UnitCard from "./UnitCard.js";
 import { getWoundRoll, CHARGE_PROBABILITY, SAVE_VALUES, AP_VALUES, getModifiedSave, getRoleColor } from "../data/quick-reference.js";
 import { runSimulation } from "../engine/simulator.js";
 import { stripHtml } from "../utils/helpers.js";
+
+// Highlight known 40k keywords in text
+const GAME_KEYWORDS = [
+  'Sustained Hits', 'Lethal Hits', 'Devastating Wounds', 'Feel No Pain',
+  'Stealth', 'Lone Operative', 'Deadly Demise', 'Deep Strike', 'Infiltrators',
+  'Scouts', 'Leader', 'Fights First', 'Firing Deck', 'Transport',
+  'Ignores Cover', 'Indirect Fire', 'Torrent', 'Twin-linked', 'Anti-',
+  'Precision', 'Hazardous', 'Blast', 'Melta', 'Lance', 'Assault', 'Heavy',
+  'Pistol', 'Rapid Fire', 'One Shot', 'Overwatch', 'Battle-shock',
+];
+
+function highlightKeywords(text) {
+  if (!text) return text;
+  const parts = [];
+  let remaining = text;
+  let keyIdx = 0;
+  while (remaining.length > 0) {
+    let earliest = -1, earliestLen = 0, earliestKw = '';
+    for (const kw of GAME_KEYWORDS) {
+      const idx = remaining.toLowerCase().indexOf(kw.toLowerCase());
+      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+        // For "Anti-", match until the next space or comma
+        let matchLen = kw.length;
+        if (kw === 'Anti-') {
+          const after = remaining.slice(idx + kw.length);
+          const endMatch = after.match(/^[\w]+(\s*\d+\+)?/);
+          if (endMatch) matchLen += endMatch[0].length;
+        }
+        earliest = idx;
+        earliestLen = matchLen;
+        earliestKw = remaining.slice(idx, idx + matchLen);
+      }
+    }
+    if (earliest === -1) {
+      parts.push(remaining);
+      break;
+    }
+    if (earliest > 0) parts.push(remaining.slice(0, earliest));
+    parts.push(h("span", { key: 'kw' + (keyIdx++), className: "kw-pill" }, earliestKw));
+    remaining = remaining.slice(earliest + earliestLen);
+  }
+  return parts;
+}
 
 export default function BattleDashboard({ army, db }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -17,6 +60,16 @@ export default function BattleDashboard({ army, db }) {
   const [stratSearch, setStratSearch] = useState("");
   // Leader attachment state: { [characterUnitIndex]: bodyguardUnitIndex }
   const [leaderAttachments, setLeaderAttachments] = useState({});
+  // Ungrouping state
+  const [ungroupedNames, setUngroupedNames] = useState(new Set());
+  // Searchable enemy dropdown
+  const [enemySearch, setEnemySearch] = useState("");
+  const [enemyDropdownOpen, setEnemyDropdownOpen] = useState(false);
+  const enemyDropdownRef = useRef(null);
+  // Army rules expand state
+  const [expandedRules, setExpandedRules] = useState(new Set());
+  // Stratagem type collapse state
+  const [collapsedStratTypes, setCollapsedStratTypes] = useState(new Set());
 
   if (!army) {
     return h("div", { className: "empty-state" },
@@ -75,13 +128,20 @@ export default function BattleDashboard({ army, db }) {
     return db.sharedAbilities.filter(a => a.faction_id === factionId && a.name && a.description);
   }, [db, army.faction]);
 
-  // Group identical units
+  // Group identical units (respecting ungroupedNames)
   const groupedUnits = useMemo(() => {
     const groups = [];
     const seen = new Map(); // name -> group index
+    const nameCounters = new Map(); // for ungrouped naming
     army.units.forEach((u, i) => {
       const name = (u.name || u.datasheet?.name || '').toLowerCase().trim();
-      if (seen.has(name)) {
+      const isUngrouped = ungroupedNames.has(name);
+      if (isUngrouped) {
+        const count = (nameCounters.get(name) || 0) + 1;
+        nameCounters.set(name, count);
+        const displayName = (u.name || u.datasheet?.name || '') + ` (${count})`;
+        groups.push({ units: [{ ...u, originalIndex: i }], count: 1, totalPoints: u.points || 0, ungroupedDisplayName: displayName, ungroupedBaseName: name });
+      } else if (seen.has(name)) {
         const gi = seen.get(name);
         groups[gi].units.push({ ...u, originalIndex: i });
         groups[gi].count++;
@@ -92,7 +152,7 @@ export default function BattleDashboard({ army, db }) {
       }
     });
     return groups;
-  }, [army.units]);
+  }, [army.units, ungroupedNames]);
 
   // Leader attachment data
   const leaderData = useMemo(() => {
@@ -104,10 +164,23 @@ export default function BattleDashboard({ army, db }) {
       const ds = u.datasheet;
       if (!ds) return;
       if (ds.leader_attachments && ds.leader_attachments.length > 0) {
+        console.log(`[LeaderDebug] Unit "${ds.name}" (idx ${i}) leader_attachments:`, ds.leader_attachments);
         characters.push(i);
         targets[i] = ds.leader_attachments.map(attachedId => {
-          // Find which army unit matches this attached_id
-          const matchIdx = army.units.findIndex((au, j) => j !== i && au.datasheet?.id === attachedId);
+          // Find which army unit matches this attached_id by datasheet id
+          let matchIdx = army.units.findIndex((au, j) => j !== i && au.datasheet?.id === attachedId);
+          // Fallback: match by name from db
+          if (matchIdx < 0) {
+            const targetUnit = db.units.find(u2 => u2.id === attachedId);
+            if (targetUnit) {
+              const targetName = targetUnit.name.toLowerCase().trim();
+              matchIdx = army.units.findIndex((au, j) => {
+                if (j === i) return false;
+                const auName = (au.datasheet?.name || au.name || '').toLowerCase().trim();
+                return auName === targetName || auName.includes(targetName) || targetName.includes(auName);
+              });
+            }
+          }
           const matchUnit = db.units.find(u2 => u2.id === attachedId);
           return { attachedId, armyIndex: matchIdx, name: matchUnit?.name || attachedId };
         }).filter(t => t.armyIndex >= 0);
@@ -226,10 +299,18 @@ export default function BattleDashboard({ army, db }) {
             const isCharacter = leaderData.characters.includes(i);
             const validTargets = leaderData.targets[i] || [];
 
+            const displayName = group.ungroupedDisplayName || null;
+            const onUngroup = group.count > 1 ? (name) => {
+              setUngroupedNames(prev => { const next = new Set(prev); next.add(name.toLowerCase().trim()); return next; });
+            } : null;
+            const onRegroup = group.ungroupedBaseName ? () => {
+              setUngroupedNames(prev => { const next = new Set(prev); next.delete(group.ungroupedBaseName); return next; });
+            } : null;
+
             const unitEl = ds
               ? h(UnitCard, {
                   key: 'g' + gi,
-                  unit: { ...ds, points: group.totalPoints },
+                  unit: { ...ds, points: group.totalPoints, ...(displayName ? { name: displayName } : {}) },
                   compact: true,
                   battleMode: true,
                   parsedData: u,
@@ -239,14 +320,18 @@ export default function BattleDashboard({ army, db }) {
                   validLeaderTargets: validTargets,
                   onAttachLeader: isCharacter ? (targetIdx) => attachLeader(i, targetIdx) : null,
                   currentAttachment: leaderAttachments[i],
+                  onUngroup,
+                  onRegroup,
                 })
               : h(UnitCard, {
                   key: 'g' + gi,
-                  unit: buildUnitFromParsed(u),
+                  unit: { ...buildUnitFromParsed(u), ...(displayName ? { name: displayName } : {}) },
                   compact: true,
                   battleMode: true,
                   parsedData: u,
                   groupCount: group.count,
+                  onUngroup,
+                  onRegroup,
                 });
             return unitEl;
           }).filter(Boolean),
@@ -280,15 +365,30 @@ export default function BattleDashboard({ army, db }) {
               h("input", { className: "input", type: "number", min: 1, max: 30, value: simAttackModels,
                 onChange: e => setSimAttackModels(+e.target.value), style: { width: 60 } }),
             ),
-            h("div", { className: "field" },
+            h("div", { className: "field search-dropdown", ref: enemyDropdownRef },
               h("label", null, "Enemy Unit"),
-              h("select", { className: "select", value: simDefenderId,
-                onChange: e => { setSimDefenderId(e.target.value); setSimResult(null); } },
-                h("option", { value: "" }, "Select enemy..."),
-                ...allUnits.filter(u => !u.legend).slice(0, 500).map(u => {
-                  const m = u.models?.[0] || {};
-                  return h("option", { key: u.id, value: u.id }, `${u.name} (T${m.T||'?'} Sv${m.Sv||'?'})`);
-                }),
+              h("input", {
+                className: "input",
+                placeholder: "Search enemy unit...",
+                value: enemyDropdownOpen ? enemySearch : (allUnits.find(u => u.id === simDefenderId)?.name || enemySearch),
+                onFocus: () => { setEnemyDropdownOpen(true); setEnemySearch(""); },
+                onChange: e => { setEnemySearch(e.target.value); setEnemyDropdownOpen(true); },
+                onBlur: () => { setTimeout(() => setEnemyDropdownOpen(false), 200); },
+              }),
+              enemyDropdownOpen && h("div", { className: "search-dropdown-list" },
+                ...(() => {
+                  const q = enemySearch.toLowerCase();
+                  return allUnits.filter(u => !u.legend && (!q || u.name.toLowerCase().includes(q))).slice(0, 20).map(u => {
+                    const m = u.models?.[0] || {};
+                    return h("div", {
+                      key: u.id, className: "search-dropdown-item",
+                      onMouseDown: e => { e.preventDefault(); setSimDefenderId(u.id); setEnemySearch(u.name); setEnemyDropdownOpen(false); setSimResult(null); },
+                    },
+                      h("span", null, u.name),
+                      h("span", { className: "dd-stats" }, `T${m.T||'?'} Sv${m.Sv||'?'}`),
+                    );
+                  });
+                })(),
               ),
             ),
             h("div", { className: "field" },
@@ -301,10 +401,12 @@ export default function BattleDashboard({ army, db }) {
               h("input", { className: "input", type: "number", min: 0, max: 6, value: simFnp,
                 onChange: e => setSimFnp(+e.target.value), style: { width: 60 } }),
             ),
-            h("div", { className: "field", style: { display: 'flex', alignItems: 'flex-end' } },
-              h("label", { className: "toggle-row" },
-                h("input", { type: "checkbox", checked: simCover, onChange: e => setSimCover(e.target.checked) }),
-                "Cover"),
+            h("div", { className: "field" },
+              h("label", null, "Cover"),
+              h("button", {
+                className: `cover-toggle ${simCover ? 'active' : ''}`,
+                onClick: () => setSimCover(!simCover),
+              }, simCover ? "🛡 Cover" : "Cover"),
             ),
             h("button", { className: "btn btn-sm", onClick: runQuickSim }, "⚡ Sim"),
           ),
@@ -317,32 +419,65 @@ export default function BattleDashboard({ army, db }) {
         ),
 
         // Stratagems section (moved from sidebar to main body)
-        stratagems.length > 0 && h("div", { className: "stratagems-main-section" },
-          h("h3", { className: "section-title" }, `Stratagems (${filteredStratagems.length})`),
-          h("input", {
-            className: "input",
-            placeholder: "Search stratagems...",
-            value: stratSearch,
-            onChange: e => setStratSearch(e.target.value),
-            style: { marginBottom: 10, maxWidth: 400 },
-          }),
-          h("div", { className: "stratagems-grid" },
-            ...filteredStratagems.map((s, i) =>
-              h("div", { key: i, className: `stratagem-card ${typeColor(s.type)}` },
-                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                  h("div", null,
-                    h("span", { className: "stratagem-name" }, s.name),
-                    s.phase && h("span", { className: "stratagem-phase", style: { marginLeft: 8 } }, s.phase),
+        stratagems.length > 0 && (() => {
+          // Group by type
+          const grouped = {};
+          filteredStratagems.forEach(s => {
+            const type = s.type || 'Other';
+            if (!grouped[type]) grouped[type] = [];
+            grouped[type].push(s);
+          });
+          const typeOrder = ['Battle Tactic', 'Strategic Ploy', 'Epic Deed', 'Other'];
+          const sortedTypes = typeOrder.filter(t => grouped[t]).concat(Object.keys(grouped).filter(t => !typeOrder.includes(t)));
+
+          const typePillClass = (type) => {
+            const t = (type || '').toLowerCase();
+            if (t.includes('battle')) return 'battle';
+            if (t.includes('strategic')) return 'strategic';
+            if (t.includes('epic')) return 'epic';
+            return '';
+          };
+
+          return h("div", { className: "stratagems-main-section" },
+            h("h3", { className: "section-title" }, `Stratagems (${filteredStratagems.length})`),
+            h("input", {
+              className: "input",
+              placeholder: "Search stratagems...",
+              value: stratSearch,
+              onChange: e => setStratSearch(e.target.value),
+              style: { marginBottom: 10, maxWidth: 400 },
+            }),
+            ...sortedTypes.map(type =>
+              h("div", { key: type, className: "strat-type-group" },
+                h("div", {
+                  className: "strat-type-header",
+                  onClick: () => setCollapsedStratTypes(prev => {
+                    const next = new Set(prev);
+                    next.has(type) ? next.delete(type) : next.add(type);
+                    return next;
+                  }),
+                }, type + ` (${grouped[type].length})`, collapsedStratTypes.has(type) ? "▶" : "▼"),
+                !collapsedStratTypes.has(type) && h("div", { className: "stratagems-grid" },
+                  ...grouped[type].map((s, i) =>
+                    h("div", { key: i, className: `stratagem-card-v2 ${typeColor(s.type)}` },
+                      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+                        h("div", null,
+                          h("span", { className: `strat-type-pill ${typePillClass(s.type)}` }, s.type || 'Stratagem'),
+                          h("div", { className: "strat-name-v2" }, s.name),
+                          s.phase && h("span", { className: "strat-phase-tag" }, s.phase),
+                        ),
+                        h("span", { className: "strat-cp-badge" }, s.cp_cost + " CP"),
+                      ),
+                      h("div", { style: { fontSize: 10, color: "#5a5548", marginTop: 2 } },
+                        [s.turn, s.detachment].filter(Boolean).join(' • ')),
+                      h("div", { className: "strat-desc-v2" }, ...highlightKeywords(stripHtml(s.description))),
+                    )
                   ),
-                  h("span", { className: "stratagem-cp" }, s.cp_cost + " CP"),
                 ),
-                h("div", { style: { fontSize: 10, color: "#5a5548", marginTop: 2 } },
-                  [s.turn, s.detachment].filter(Boolean).join(' • ')),
-                h("div", { className: "stratagem-effect" }, stripHtml(s.description)),
               )
             ),
-          ),
-        ),
+          );
+        })(),
       ),
 
       // Quick Reference Sidebar
@@ -350,10 +485,16 @@ export default function BattleDashboard({ army, db }) {
         // Army Rules
         armyRules.length > 0 && h("div", { className: "ref-section" },
           h("h4", { className: "ref-title" }, "Army Rules"),
-          ...armyRules.slice(0, 3).map((r, i) =>
-            h("div", { key: i, className: "ref-stratagem", style: { borderLeftColor: '#c9a84c' } },
-              h("div", { className: "ref-strat-name" }, r.name),
-              h("div", { className: "ref-strat-desc" }, stripHtml(r.description).slice(0, 300) + (r.description.length > 300 ? '…' : '')),
+          ...armyRules.map((r, i) =>
+            h("div", { key: i, className: "army-rule-card", onClick: () => {
+              setExpandedRules(prev => {
+                const next = new Set(prev);
+                next.has(i) ? next.delete(i) : next.add(i);
+                return next;
+              });
+            }},
+              h("div", { className: "army-rule-header" }, r.name, expandedRules.has(i) ? "▼" : "▶"),
+              expandedRules.has(i) && h("div", { className: "army-rule-body" }, stripHtml(r.description)),
             )
           ),
         ),
