@@ -417,10 +417,14 @@ export default function BattleDashboard({ army, db }) {
     const attackerAbilities = (attackerUnit.datasheet?.abilities || attackerUnit.abilities || []);
     for (const ab of attackerAbilities) {
       const abDesc = (ab.description || ab.desc || '').toLowerCase();
+      // Detect rerolls, but skip conditional ones (e.g. "while within range of objective... re-roll the wound roll")
+      // Simple heuristic: if "re-roll the X roll" appears after conditional language, treat as conditional
+      const hasConditionalWound = /(?:while|if|when).*re-roll the wound roll/i.test(abDesc);
+      const hasConditionalHit = /(?:while|if|when).*re-roll the hit roll/i.test(abDesc);
       if (abDesc.includes('re-roll a wound roll of 1')) opts.rerollWoundOnes = true;
-      if (abDesc.includes('re-roll the wound roll')) opts.rerollWoundAll = true;
+      if (abDesc.includes('re-roll the wound roll') && !hasConditionalWound) opts.rerollWoundAll = true;
       if (abDesc.includes('re-roll a hit roll of 1')) opts.rerollHitOnes = true;
-      if (abDesc.includes('re-roll the hit roll')) opts.rerollHitAll = true;
+      if (abDesc.includes('re-roll the hit roll') && !hasConditionalHit) opts.rerollHitAll = true;
     }
 
     // Apply Ka'tah stance (melee only)
