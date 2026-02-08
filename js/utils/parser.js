@@ -257,6 +257,65 @@ function applyEnhancementEffects(unit) {
   }
 }
 
+/** Count total models in a BattleScribe selection by summing nested model-type entries */
+function countModels(sel) {
+  let count = 0;
+  // Method 1: Direct model-type children
+  if (sel.selections) {
+    for (const s of sel.selections) {
+      if (s.type === 'model') {
+        count += parseInt(s.number) || 1;
+      }
+    }
+  }
+  if (count > 0) return count;
+
+  // Method 2: Recursively search for model-type selections at any depth
+  function findModelsDeep(node) {
+    let n = 0;
+    if (node.selections) {
+      for (const s of node.selections) {
+        if (s.type === 'model') {
+          n += parseInt(s.number) || 1;
+        } else {
+          n += findModelsDeep(s);
+        }
+      }
+    }
+    return n;
+  }
+  count = findModelsDeep(sel);
+  if (count > 0) return count;
+
+  // Method 3: Check "Unit" profiles with model count characteristics
+  if (sel.profiles) {
+    for (const p of sel.profiles) {
+      if ((p.typeName || '').toLowerCase() === 'unit') {
+        for (const ch of (p.characteristics || [])) {
+          if ((ch.name || '').toLowerCase() === 'models' || (ch.name || '').toLowerCase() === 'no.') {
+            const n = parseInt(ch.$text || ch.value || '');
+            if (n > 0) count += n;
+          }
+        }
+      }
+    }
+  }
+  if (count > 0) return count;
+
+  // Method 4: Count selections that have stat profiles (each is likely a model)
+  if (sel.selections) {
+    let modelLikeCount = 0;
+    for (const s of sel.selections) {
+      if (s.profiles && s.profiles.some(p => (p.typeName || '').toLowerCase() === 'unit')) {
+        modelLikeCount += parseInt(s.number) || 1;
+      }
+    }
+    if (modelLikeCount > 0) return modelLikeCount;
+  }
+
+  return 0;
+}
+
 function parseUnitSelection(sel) {
   const unit = {
     name: sel.name || 'Unknown',
@@ -317,9 +376,12 @@ function parseUnitSelection(sel) {
   }
   unit.points = sumNestedCosts(sel);
 
-  // Number of models from sel.number if available
-  if (sel.number) {
-    unit.models = parseInt(sel.number) || 1;
+  // Count models from nested model-type selections
+  const modelCount = countModels(sel);
+  if (modelCount > 0) {
+    unit.models = modelCount;
+  } else if (sel.number && parseInt(sel.number) > 1) {
+    unit.models = parseInt(sel.number);
   }
 
   // Apply enhancement stat modifications
